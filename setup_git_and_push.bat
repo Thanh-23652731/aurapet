@@ -12,12 +12,12 @@ echo.
 where git >nul 2>nul
 if %ERRORLEVEL% EQU 0 goto :GIT_FOUND
 
-if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" (
-    set "PATH=%LOCALAPPDATA%\Programs\Git\cmd;%PATH%"
-    goto :GIT_FOUND
-)
 if exist "C:\Program Files\Git\cmd\git.exe" (
     set "PATH=C:\Program Files\Git\cmd;%PATH%"
+    goto :GIT_FOUND
+)
+if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" (
+    set "PATH=%LOCALAPPDATA%\Programs\Git\cmd;%PATH%"
     goto :GIT_FOUND
 )
 if exist "C:\Program Files (x86)\Git\cmd\git.exe" (
@@ -55,7 +55,21 @@ goto :END
 
 :GIT_FOUND
 cd /d "%~dp0"
-echo [1/4] Kiem tra Git Repository...
+
+:: 2. Cau hinh dinh danh tac gia (tranh loi Author identity unknown)
+git config user.name >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [Cau hinh Git] Dat ten tac gia: Thanh-23652731
+    git config --global user.name "Thanh-23652731"
+)
+
+git config user.email >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [Cau hinh Git] Dat email tac gia: thanh.dev@aurapet.com
+    git config --global user.email "thanh.dev@aurapet.com"
+)
+
+echo [1/3] Kiem tra Git Repository...
 if not exist "%~dp0.git" (
     echo   - Khoi tao Git repository moi...
     git init -b main
@@ -64,53 +78,70 @@ if not exist "%~dp0.git" (
 )
 
 echo.
-echo [2/4] Them cac file vao Git (da loai tru file rac va bao mat qua .gitignore)...
+echo [2/3] Kiem tra commit du an...
 git add .
+git status --porcelain | findstr /R "." >nul
+if %ERRORLEVEL% EQU 0 (
+    echo   - Dang tao commit cac thay doi moi nhat...
+    git commit -m "feat: complete AuraPet fullstack AIoT ecosystem with Supabase and GitHub CI/CD"
+) else (
+    echo   - Cac file da duoc commit day du san sang!
+)
+
+git branch -M main
 
 echo.
-echo [3/4] Tao Commit luu tru...
-git commit -m "feat: complete AuraPet fullstack AIoT ecosystem with GitHub Actions and Supabase support"
-
-echo.
-echo [4/4] Cau hinh Remote GitHub...
+echo [3/3] Ket noi va day code len GitHub...
 git remote get-url origin >nul 2>nul
 if %ERRORLEVEL% NEQ 0 goto :ASK_REMOTE_URL
 
-echo   - Remote origin da duoc ket noi san.
+echo   - Remote origin: https://github.com/Thanh-23652731/aurapet
 echo   - Dang day code len GitHub (nhanh main)...
-git branch -M main
+echo.
+echo * CHU Y: Neu trinh duyet bat len cua so GitHub, hay bam [Sign in with your browser] de cap quyen!
+echo.
 git push -u origin main
-goto :PUSH_DONE
+if %ERRORLEVEL% EQU 0 goto :PUSH_DONE
+goto :PUSH_ERROR
 
 :ASK_REMOTE_URL
 echo.
 echo Hay tao mot repository moi tren GitHub: https://github.com/new
-echo (Luu y: Dat ten repo tuy thich, khong can tich chon Add README vi da co san).
-echo.
 set "REPO_URL="
-set /p REPO_URL=Dan duong link repo cua ban (VD: https://github.com/tenban/aurapet.git): 
+set /p REPO_URL=Dan duong link repo cua ban (VD: https://github.com/Thanh-23652731/aurapet): 
 
 if "%REPO_URL%"=="" (
     echo.
-    echo Ban chua nhap link repo. Ban co the push sau bang cac lenh:
-    echo   git remote add origin ^<LINK_REPO^>
-    echo   git branch -M main
-    echo   git push -u origin main
+    echo Ban chua nhap link repo. Ban co the push sau bang: git push -u origin main
     goto :END
 )
 
 git remote add origin %REPO_URL%
 echo.
 echo Dang day code len GitHub...
-git branch -M main
+echo * CHU Y: Neu trinh duyet bat len cua so GitHub, hay bam [Sign in with your browser] de cap quyen!
+echo.
 git push -u origin main
+if %ERRORLEVEL% EQU 0 goto :PUSH_DONE
+goto :PUSH_ERROR
 
 :PUSH_DONE
 echo.
 echo ===================================================================
-echo [THANH CONG] Code da duoc day len GitHub!
-echo   - Xem Web tai: https://[username].github.io/[repo_name]/
-echo   - Xem huong dan deploy tiep theo tai: docs/DEPLOY_GITHUB_AND_SUPABASE.md
+echo [THANH CONG] Toan bo du an da duoc day len GitHub!
+echo   - Repo:    https://github.com/Thanh-23652731/aurapet
+echo   - Web App: https://Thanh-23652731.github.io/aurapet/
+echo   - Huong dan tiep theo tai: docs/DEPLOY_GITHUB_AND_SUPABASE.md
+echo ===================================================================
+goto :END
+
+:PUSH_ERROR
+echo.
+echo ===================================================================
+echo [CHU Y] Neu gap loi tu choi quyen (Permission denied / 403):
+echo   1. Hay dam bao repository https://github.com/Thanh-23652731/aurapet da duoc tao tren GitHub.
+echo   2. Chon 'Sign in with your browser' tren cua so Git Credential Manager vua hien len.
+echo   3. Neu dung Personal Access Token: nhap Token lam Password.
 echo ===================================================================
 
 :END
