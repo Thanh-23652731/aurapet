@@ -1,0 +1,43 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: aurapet-backend
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    url: ${SUPABASE_DB_URL:${SPRING_DATASOURCE_URL:jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:aurapetdb}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Ho_Chi_Minh}}
+    username: ${SUPABASE_DB_USER:${SPRING_DATASOURCE_USERNAME:${DB_USER:root}}}
+    password: ${SUPABASE_DB_PASSWORD:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+aurapet:
+  jwt:
+    secret: ${AURAPET_JWT_SECRET:}
+    expiration-ms: 86400000 # 24 hours
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  firebase:
+    enabled: false
+    service-account-path: classpath:firebase-service-account.json
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+logging:
+  level:
+    root: INFO
+    com.aurapet.backend: DEBUG

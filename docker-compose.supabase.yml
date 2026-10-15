@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  # Spring Boot Backend Service kết nối trực tiếp Supabase Cloud PostgreSQL
+  aurapet-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aurapet-backend-supabase
+    restart: always
+    environment:
+      PORT: 8080
+      SPRING_PROFILES_ACTIVE: supabase
+      SPRING_DATASOURCE_URL: ${SUPABASE_DB_URL:-jdbc:postgresql://aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require}
+      SPRING_DATASOURCE_USERNAME: ${SUPABASE_DB_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      AURAPET_JWT_SECRET: ${AURAPET_JWT_SECRET:-d774dfc564fce6b2d9d56de4985e8152f0e3bb944f53c1f87bb15bc2d4a11ff2}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "8080:8080"

@@ -1,0 +1,1047 @@
+openapi: 3.0.3
+info:
+  title: AuraPet AIoT Smart Pet Care System API
+  version: 1.0.0
+  description: >
+    Production-ready AIoT Smart Pet Care REST API specification.
+    Coordinates device telemetry, edge AI analytics, automated feeding, litter monitoring, and pet health tracking.
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+paths:
+  /api/v1/auth/login:
+    post:
+      summary: User authentication
+      operationId: login
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseWrapper'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseWrapper'
+
+  /api/v1/auth/register:
+    post:
+      summary: User registration
+      operationId: register
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseWrapper'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseWrapper'
+
+  /api/v1/auth/me:
+    get:
+      summary: Get current authenticated user profile
+      operationId: getCurrentUser
+      tags:
+        - Authentication
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponseWrapper'
+
+  /api/v1/pets:
+    get:
+      summary: List pets with pagination, search, and filtering
+      operationId: getPets
+      tags:
+        - Pets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: search
+          in: query
+          description: Search by pet name or breed
+          schema:
+            type: string
+        - name: breed
+          in: query
+          schema:
+            type: string
+        - name: gender
+          in: query
+          schema:
+            type: string
+            enum: [MALE, FEMALE]
+        - name: ownerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of pets with page metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetPageResponseWrapper'
+
+    post:
+      summary: Register a new pet
+      operationId: createPet
+      tags:
+        - Pets
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePetRequest'
+      responses:
+        '201':
+          description: Pet created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetResponseWrapper'
+
+  /api/v1/pets/{id}:
+    get:
+      summary: Retrieve pet by UUID
+      operationId: getPetById
+      tags:
+        - Pets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Pet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetResponseWrapper'
+        '404':
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseWrapper'
+
+    put:
+      summary: Update existing pet
+      operationId: updatePet
+      tags:
+        - Pets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePetRequest'
+      responses:
+        '200':
+          description: Pet updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetResponseWrapper'
+        '404':
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseWrapper'
+
+    delete:
+      summary: Delete pet
+      operationId: deletePet
+      tags:
+        - Pets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Pet deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponseWrapper'
+
+  /api/v1/pets/{id}/image:
+    post:
+      summary: Upload or update pet profile image
+      operationId: updatePetImage
+      tags:
+        - Pets
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePetImageRequest'
+      responses:
+        '200':
+          description: Image updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetResponseWrapper'
+
+  /api/v1/dashboard/stats:
+    get:
+      summary: Retrieve aggregated dashboard metrics
+      operationId: getDashboardStats
+      tags:
+        - Dashboard
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: System and pet care statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStatsResponseWrapper'
+
+  /api/v1/health/{petId}/summary:
+    get:
+      summary: Get AI Health Analytics Summary for a pet
+      operationId: getPetHealthSummary
+      tags:
+        - Health Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: AI health analysis and recommendation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthSummaryResponseWrapper'
+
+  /api/v1/health/{petId}/weight:
+    get:
+      summary: Retrieve weight historical telemetry
+      operationId: getWeightHistory
+      tags:
+        - Health Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Historical weight tracking points
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeightHistoryResponseWrapper'
+
+  /api/v1/health/{petId}/food:
+    get:
+      summary: Retrieve food intake history
+      operationId: getFoodHistory
+      tags:
+        - Health Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Daily food intake history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedingLogListResponseWrapper'
+
+  /api/v1/health/{petId}/litter:
+    get:
+      summary: Retrieve litter box usage logs
+      operationId: getLitterHistory
+      tags:
+        - Health Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Litter activity records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LitterLogListResponseWrapper'
+
+  /api/v1/system/feeder:
+    post:
+      summary: Command smart feeder to dispense food
+      operationId: controlFeeder
+      tags:
+        - IoT Devices
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeederCommandRequest'
+      responses:
+        '200':
+          description: Dispense command received and executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatusResponseWrapper'
+
+  /api/v1/system/water:
+    post:
+      summary: Command circulating water fountain pump
+      operationId: controlWater
+      tags:
+        - IoT Devices
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaterCommandRequest'
+      responses:
+        '200':
+          description: Water pump command executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatusResponseWrapper'
+
+  /api/v1/system/litter:
+    post:
+      summary: Trigger auto litter box cleaning cycle
+      operationId: controlLitter
+      tags:
+        - IoT Devices
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LitterCommandRequest'
+      responses:
+        '200':
+          description: Cleaning cycle initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatusResponseWrapper'
+
+  /api/v1/system/status:
+    get:
+      summary: Get real-time system status and hardware telemetry
+      operationId: getSystemStatus
+      tags:
+        - IoT Devices
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current IoT hardware state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatusResponseWrapper'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # Common Envelope
+    ApiResponse:
+      type: object
+      required:
+        - success
+        - message
+        - timestamp
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-09-14T12:00:00Z"
+        errors:
+          type: array
+          items:
+            type: string
+          example: []
+
+    # Domain Models
+    User:
+      type: object
+      required:
+        - id
+        - name
+        - email
+        - role
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+        name:
+          type: string
+          example: "Alex Johnson"
+        email:
+          type: string
+          format: email
+          example: "admin@aurapet.com"
+        role:
+          type: string
+          enum: [ROLE_ADMIN, ROLE_USER]
+          example: "ROLE_ADMIN"
+
+    Pet:
+      type: object
+      required:
+        - id
+        - ownerId
+        - name
+        - breed
+        - age
+        - gender
+        - neutered
+        - weight
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22"
+        ownerId:
+          type: string
+          format: uuid
+          example: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+        name:
+          type: string
+          example: "Luna"
+        breed:
+          type: string
+          example: "British Shorthair"
+        age:
+          type: integer
+          example: 2
+        gender:
+          type: string
+          enum: [MALE, FEMALE]
+          example: "FEMALE"
+        neutered:
+          type: boolean
+          example: true
+        weight:
+          type: number
+          format: double
+          example: 4.25
+        imageUrl:
+          type: string
+          nullable: true
+          example: "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba"
+
+    FeedingLog:
+      type: object
+      required:
+        - id
+        - petId
+        - foodGram
+        - timestamp
+      properties:
+        id:
+          type: string
+          format: uuid
+        petId:
+          type: string
+          format: uuid
+        foodGram:
+          type: integer
+          example: 45
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-09-14T08:30:00Z"
+
+    LitterLog:
+      type: object
+      required:
+        - id
+        - petId
+        - result
+        - timestamp
+      properties:
+        id:
+          type: string
+          format: uuid
+        petId:
+          type: string
+          format: uuid
+        result:
+          type: string
+          enum: [NORMAL, ABNORMAL, DIARRHEA, CONSTIPATION]
+          example: "NORMAL"
+        imageUrl:
+          type: string
+          nullable: true
+          example: "https://images.unsplash.com/photo-1574158622682-e40e69881006"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-09-14T09:15:00Z"
+
+    SystemStatus:
+      type: object
+      required:
+        - feeder
+        - waterPump
+        - litterCleaner
+        - esp32
+        - raspberryPi
+      properties:
+        feeder:
+          type: boolean
+          example: true
+        waterPump:
+          type: boolean
+          example: true
+        litterCleaner:
+          type: boolean
+          example: false
+        esp32:
+          type: string
+          enum: [ONLINE, OFFLINE, BUSY]
+          example: "ONLINE"
+        raspberryPi:
+          type: string
+          enum: [ONLINE, OFFLINE, BUSY]
+          example: "ONLINE"
+        foodLevelPercent:
+          type: integer
+          example: 78
+        waterLevelPercent:
+          type: integer
+          example: 85
+        litterWastePercent:
+          type: integer
+          example: 22
+
+    Alert:
+      type: object
+      required:
+        - id
+        - type
+        - level
+        - message
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [HEALTH, FEEDING, LITTER, SYSTEM]
+          example: "FEEDING"
+        level:
+          type: string
+          enum: [INFO, WARNING, CRITICAL]
+          example: "INFO"
+        message:
+          type: string
+          example: "Luna consumed 45g of premium kibble at 08:30"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-09-14T08:30:05Z"
+
+    WeightRecord:
+      type: object
+      required:
+        - id
+        - petId
+        - weight
+        - recordedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        petId:
+          type: string
+          format: uuid
+        weight:
+          type: number
+          format: double
+          example: 4.25
+        recordedAt:
+          type: string
+          format: date-time
+          example: "2026-09-14T07:00:00Z"
+
+    HealthSummary:
+      type: object
+      required:
+        - petId
+        - petName
+        - healthScore
+        - status
+        - dailyAvgFoodGram
+        - weeklyLitterVisits
+        - weightChangeKg
+        - aiRecommendation
+      properties:
+        petId:
+          type: string
+          format: uuid
+        petName:
+          type: string
+          example: "Luna"
+        healthScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 96
+        status:
+          type: string
+          example: "Optimal"
+        dailyAvgFoodGram:
+          type: number
+          format: double
+          example: 120.5
+        weeklyLitterVisits:
+          type: integer
+          example: 21
+        weightChangeKg:
+          type: number
+          format: double
+          example: 0.05
+        aiRecommendation:
+          type: string
+          example: "Vital indicators are in prime zone. Digestive frequency is consistent with optimal gut microbiome balance."
+
+    DashboardStats:
+      type: object
+      required:
+        - totalPets
+        - todayFoodGram
+        - feedingSessionsCount
+        - litterUsageCount
+        - latestAlerts
+        - deviceStatus
+      properties:
+        totalPets:
+          type: integer
+          example: 3
+        todayFoodGram:
+          type: integer
+          example: 240
+        feedingSessionsCount:
+          type: integer
+          example: 5
+        litterUsageCount:
+          type: integer
+          example: 6
+        latestAlerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+        deviceStatus:
+          $ref: '#/components/schemas/SystemStatus'
+
+    # Requests
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: "admin@aurapet.com"
+        password:
+          type: string
+          format: password
+          example: "Admin@123"
+
+    RegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        password:
+          type: string
+          minLength: 6
+          example: "Secret@123"
+        role:
+          type: string
+          enum: [ROLE_ADMIN, ROLE_USER]
+          default: "ROLE_USER"
+
+    AuthResponse:
+      type: object
+      required:
+        - token
+        - tokenType
+        - user
+      properties:
+        token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        tokenType:
+          type: string
+          example: "Bearer"
+        user:
+          $ref: '#/components/schemas/User'
+
+    CreatePetRequest:
+      type: object
+      required:
+        - name
+        - breed
+        - age
+        - gender
+        - neutered
+        - weight
+      properties:
+        ownerId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          minLength: 1
+          example: "Luna"
+        breed:
+          type: string
+          example: "British Shorthair"
+        age:
+          type: integer
+          minimum: 0
+          example: 2
+        gender:
+          type: string
+          enum: [MALE, FEMALE]
+          example: "FEMALE"
+        neutered:
+          type: boolean
+          example: true
+        weight:
+          type: number
+          format: double
+          minimum: 0.1
+          example: 4.25
+        imageUrl:
+          type: string
+          nullable: true
+          example: "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba"
+
+    UpdatePetRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        breed:
+          type: string
+        age:
+          type: integer
+        gender:
+          type: string
+          enum: [MALE, FEMALE]
+        neutered:
+          type: boolean
+        weight:
+          type: number
+          format: double
+        imageUrl:
+          type: string
+          nullable: true
+
+    UpdatePetImageRequest:
+      type: object
+      required:
+        - imageUrl
+      properties:
+        imageUrl:
+          type: string
+          format: uri
+
+    FeederCommandRequest:
+      type: object
+      required:
+        - portionGram
+      properties:
+        petId:
+          type: string
+          format: uuid
+          nullable: true
+        portionGram:
+          type: integer
+          minimum: 5
+          maximum: 150
+          example: 30
+
+    WaterCommandRequest:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: true
+
+    LitterCommandRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [CLEAN, RESET, PAUSE]
+          example: "CLEAN"
+
+    PageMetadata:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 10
+        totalElements:
+          type: integer
+          example: 3
+        totalPages:
+          type: integer
+          example: 1
+
+    PetPageData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pet'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    # Wrapped Responses (ApiResponse<T>)
+    AuthResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthResponse'
+
+    UserResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/User'
+
+    PetResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Pet'
+
+    PetPageResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PetPageData'
+
+    DashboardStatsResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DashboardStats'
+
+    HealthSummaryResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/HealthSummary'
+
+    WeightHistoryResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WeightRecord'
+
+    FeedingLogListResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/FeedingLog'
+
+    LitterLogListResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/LitterLog'
+
+    SystemStatusResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SystemStatus'
+
+    VoidResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              nullable: true
+
+    ErrorResponseWrapper:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              nullable: true

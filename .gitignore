@@ -1,0 +1,95 @@
+# ===================================================================
+# AuraPet Root .gitignore - Production Clean Repository
+# ===================================================================
+
+# === Spring Boot / Maven / Gradle ===
+backend/target/
+backend/build/
+backend/.gradle/
+backend/bin/
+*.class
+.mvn/wrapper/maven-wrapper.jar
+
+# === Flutter & Dart ===
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.pub-cache/
+mobile/.pub/
+mobile/coverage/
+mobile/*.map.json
+mobile/*.symbols
+
+# === Android Build & Config ===
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/build/
+mobile/android/captures/
+mobile/android/.externalNativeBuild/
+mobile/android/.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# === iOS Build & Config ===
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Flutter/.last_build_id
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+*.ipa
+
+# === IDE & Editors ===
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.settings/
+.classpath
+.project
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# === Environment, Secrets & Credentials ===
+.env
+.env.production
+.env.supabase
+.env.local
+.env.*.local
+*.key
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+firebase-debug.log
+
+# === Native Binaries ===
+cloudflared.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# === OS & System ===
+Thumbs.db
+.DS_Store
+desktop.ini
+$RECYCLE.BIN/
+
+# === Logs ===
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# === Node / Web ===
+node_modules/
+dist/
+build/

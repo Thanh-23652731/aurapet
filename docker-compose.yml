@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # 1. MariaDB Database Service
+  aurapet-db:
+    image: mariadb:11.4
+    container_name: aurapet-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-1234}
+      MYSQL_DATABASE: ${DB_NAME:-aurapetdb}
+      MYSQL_USER: ${DB_USER:-aurapet}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-aurapet123}
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - aurapet-network
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-1234}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Spring Boot Backend Service
+  aurapet-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aurapet-backend
+    restart: always
+    depends_on:
+      aurapet-db:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mariadb://aurapet-db:3306/${DB_NAME:-aurapetdb}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Ho_Chi_Minh
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-aurapet}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-aurapet123}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      AURAPET_JWT_SECRET: ${AURAPET_JWT_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "8080:8080"
+    networks:
+      - aurapet-network
+
+volumes:
+  mariadb_data:
+    driver: local
+
+networks:
+  aurapet-network:
+    driver: bridge
