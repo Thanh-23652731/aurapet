@@ -52,15 +52,8 @@ public class DeviceController {
         return ResponseEntity.ok(ApiResponse.ok(deviceService.tare(), "Đã gửi lệnh trừ bì"));
     }
 
-    @PostMapping("/pump")
-    @Operation(summary = "Bật/tắt bơm nước (nếu đã lắp)")
-    public ResponseEntity<ApiResponse<DeviceStateDto>> pump(@Valid @RequestBody PumpRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(deviceService.pump(request.getOn(), request.getSeconds()),
-                Boolean.TRUE.equals(request.getOn()) ? "Đã bật bơm" : "Đã tắt bơm"));
-    }
-
     @PutMapping("/settings")
-    @Operation(summary = "Cập nhật cài đặt (khẩu phần, tự động, lịch hẹn giờ, mèo của máy, bơm)")
+    @Operation(summary = "Cập nhật cài đặt (khẩu phần, tự động, lịch hẹn giờ, mèo của máy)")
     public ResponseEntity<ApiResponse<DeviceStateDto>> settings(@Valid @RequestBody UpdateDeviceSettingsRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(deviceService.updateSettings(request), "Đã lưu cài đặt"));
     }

@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   PREFIX/log        ESP32 -> server  (sau mỗi lần nhả hạt)
  *   PREFIX/status     ESP32 -> server  ("online"/"offline", retained + Last Will)
  *   PREFIX/vision     Raspberry Pi -> server (phát hiện mèo bằng camera)
+ *   PREFIX/water      ESP32 máy dọn cát -> server (mực nước bình bơm tuần hoàn, 5 giây/lần)
  *   PREFIX/command    server -> ESP32
  *
  * Trình duyệt và app KHÔNG kết nối broker trực tiếp nữa, nên mật khẩu broker không bị lộ.
@@ -133,8 +134,9 @@ public class MqttGateway implements DeviceCommandPublisher, MqttCallbackExtended
     public void connectComplete(boolean reconnect, String serverURI) {
         log.info("[MQTT] Đã kết nối broker{}", reconnect ? " (kết nối lại)" : "");
         try {
-            client.subscribe(new String[]{prefix + "/telemetry", prefix + "/log", prefix + "/status", prefix + "/vision"},
-                    new int[]{0, 1, 1, 0});
+            client.subscribe(new String[]{prefix + "/telemetry", prefix + "/log", prefix + "/status", prefix + "/vision",
+                            prefix + "/water"},
+                    new int[]{0, 1, 1, 0, 0});
         } catch (MqttException e) {
             log.error("[MQTT] Lỗi subscribe: {}", e.getMessage());
         }

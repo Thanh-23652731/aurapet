@@ -67,6 +67,16 @@ public class DeviceService {
     private volatile Instant lastVisionFeedAt = Instant.EPOCH;
     private volatile String lastScheduleKey;
 
+    // ---- Bình nước (ESP32 máy dọn cát gửi PREFIX/water 5 giây/lần) ----
+    private static final Duration WATER_ONLINE_TIMEOUT = Duration.ofSeconds(30);
+    /** Sóng nước làm số đo nhảy quanh ngưỡng: không nhắc "sắp hết nước" lại trong 30 phút. */
+    private static final Duration LOW_WATER_ALERT_GAP = Duration.ofMinutes(30);
+    private volatile JsonNode water;
+    private volatile Instant waterLastSeen;
+    private volatile boolean waterAnnounced;
+    private volatile boolean lastLowWater;
+    private Instant lastLowWaterAlertAt = Instant.EPOCH;
+
     private volatile Instant lastFeedAt;
     private volatile Integer lastFeedGram;
     private volatile String lastFeedSource;
@@ -123,13 +133,27 @@ public class DeviceService {
                     .feedCountSinceBoot(t.path("feedCount").asInt(0))
                     .ip(textOrNull(t, "ip"))
                     .wifiRssi(t.has("rssi") ? t.path("rssi").asInt() : null)
-                    .message(textOrNull(t, "msg"))
-                    .pumpSupported(t.path("pumpSupported").asBoolean(false))
-                    .pumpOn(online && t.path("pumpOn").asBoolean(false));
+                    .message(textOrNull(t, "msg"));
         } else {
-            b.pumpSupported(false).pumpOn(false).feeding(false).catPresent(false);
+            b.feeding(false).catPresent(false);
+        }
+
+        JsonNode w = water;
+        boolean wOnline = isWaterOnline();
+        b.waterOnline(wOnline).waterLastSeen(waterLastSeen);
+        if (w != null) {
+            boolean sensorOk = w.path("sensorOk").asBoolean(false) && w.path("waterPercent").asInt(-1) >= 0;
+            b.waterSensorOk(sensorOk)
+                    .waterPercent(sensorOk ? w.path("waterPercent").asInt() : null)
+                    .waterCm(sensorOk ? round1(w.path("waterCm").asDouble()) : null)
+                    .lowWater(w.path("lowWater").asBoolean(false));
         }
         return b.build();
+    }
+
+    public boolean isWaterOnline() {
+        Instant seen = waterLastSeen;
+        return seen != null && Duration.between(seen, Instant.now()).compareTo(WATER_ONLINE_TIMEOUT) < 0;
     }
 
     // =====================================================================
@@ -162,19 +186,9 @@ public class DeviceService {
         return getState();
     }
 
-    public DeviceStateDto pump(boolean on, Integer seconds) {
-        requireOnline();
-        if (telemetry == null || !telemetry.path("pumpSupported").asBoolean(false)) {
-            throw new BadRequestException("Máy chưa lắp bơm nước (PUMP_PIN chưa được cấu hình trong firmware)");
-        }
-        int sec = seconds != null ? seconds : getSettings().getPumpSeconds();
-        sendCommand(cmd("PUMP", "on", on, "seconds", sec));
-        return getState();
-    }
-
     public synchronized DeviceStateDto updateSettings(UpdateDeviceSettingsRequest r) {
         DeviceSettings s = getSettings();
-        boolean pushTarget = false, pushAuto = false, pushPump = false;
+        boolean pushTarget = false, pushAuto = false;
 
         if (r.getTargetGram() != null) {
             s.setTargetGram(clampGram(r.getTargetGram()));
@@ -196,21 +210,12 @@ public class DeviceService {
             }
             s.setFeederPetId(r.getFeederPetId());
         }
-        if (r.getPumpAuto() != null) {
-            s.setPumpAuto(r.getPumpAuto());
-            pushPump = true;
-        }
-        if (r.getPumpSeconds() != null) {
-            s.setPumpSeconds(r.getPumpSeconds());
-            pushPump = true;
-        }
 
         saveSettings(s);
 
         if (isOnline()) {
             if (pushTarget) sendCommand(cmd("SET_TARGET", "gram", s.getTargetGram()));
             if (pushAuto) sendCommand(cmd("AUTO", "enabled", s.getAutoMode()));
-            if (pushPump) sendCommand(cmd("PUMP_AUTO", "enabled", s.getPumpAuto(), "seconds", s.getPumpSeconds()));
             pendingSyncUntil = Instant.now().plus(SYNC_GRACE);
         }
         return getState();
@@ -228,6 +233,7 @@ public class DeviceService {
                 case "log" -> handleFeedingLog(event.payload());
                 case "status" -> handleStatus(event.payload());
                 case "vision" -> handleVision(event.payload());
+                case "water" -> handleWater(event.payload());
                 default -> log.debug("[Device] Bỏ qua channel lạ: {}", event.channel());
             }
         } catch (Exception e) {
@@ -325,11 +331,7 @@ public class DeviceService {
         }
         DeviceSettings s = getSettings();
 
-        if (Boolean.TRUE.equals(s.getPumpAuto()) && telemetry.path("pumpSupported").asBoolean(false)
-                && !telemetry.path("pumpOn").asBoolean(false)) {
-            sendCommand(cmd("PUMP", "on", true, "seconds", s.getPumpSeconds()));
-        }
-
+        // Mèo đến gần: chỉ cho ăn khi bật Tự động và khay gần hết (bơm nước tuần hoàn chạy liên tục, không điều khiển)
         boolean bowlEmpty = telemetry.path("weight").asDouble(0) < EMPTY_BOWL_GRAM;
         boolean cooled = Duration.between(lastVisionFeedAt, Instant.now()).compareTo(VISION_FEED_COOLDOWN) > 0;
         if (Boolean.TRUE.equals(s.getAutoMode()) && bowlEmpty && cooled
@@ -337,6 +339,31 @@ public class DeviceService {
             lastVisionFeedAt = Instant.now();
             sendCommand(cmd("FEED", "gram", s.getTargetGram(), "source", "Camera AI"));
         }
+    }
+
+    /** Mực nước từ ESP32 máy dọn cát: báo web/app khi sắp hết để người dùng đổ thêm. */
+    synchronized void handleWater(String payload) throws Exception {
+        JsonNode w = mapper.readTree(payload);
+        this.water = w;
+        this.waterLastSeen = Instant.now();
+
+        if (!waterAnnounced) {
+            waterAnnounced = true;
+            addAlert(AlertType.SYSTEM, AlertLevel.INFO, "Cảm biến mực nước đã kết nối (IP " + w.path("ip").asText("?") + ")");
+        }
+
+        boolean low = w.path("lowWater").asBoolean(false);
+        int pct = w.path("waterPercent").asInt(-1);
+        if (low && !lastLowWater
+                && Duration.between(lastLowWaterAlertAt, Instant.now()).compareTo(LOW_WATER_ALERT_GAP) > 0) {
+            lastLowWaterAlertAt = Instant.now();
+            addAlert(AlertType.HEALTH, AlertLevel.WARNING,
+                    "Bình nước sắp cạn" + (pct >= 0 ? " (còn khoảng " + pct + "%)" : "")
+                            + ". Hãy đổ thêm nước để bơm không chạy khô và bé luôn có nước uống.");
+        } else if (!low && lastLowWater) {
+            addAlert(AlertType.HEALTH, AlertLevel.INFO, "Đã đổ thêm nước" + (pct >= 0 ? " (" + pct + "%)" : ""));
+        }
+        lastLowWater = low;
     }
 
     // =====================================================================
@@ -382,6 +409,11 @@ public class DeviceService {
             onlineAnnounced = false;
             addAlert(AlertType.SYSTEM, AlertLevel.WARNING, "Máy cho ăn mất kết nối — kiểm tra nguồn điện và Wi-Fi");
         }
+        if (waterAnnounced && !isWaterOnline()) {
+            waterAnnounced = false;
+            addAlert(AlertType.SYSTEM, AlertLevel.WARNING,
+                    "Cảm biến mực nước (ESP32 máy dọn cát) mất kết nối — kiểm tra nguồn điện và Wi-Fi");
+        }
     }
 
     // =====================================================================
@@ -413,8 +445,6 @@ public class DeviceService {
                 .autoMode(false)
                 .scheduleEnabled(false)
                 .scheduleTimes("07:00,12:00,18:00")
-                .pumpAuto(false)
-                .pumpSeconds(30)
                 .build();
     }
 
@@ -422,7 +452,6 @@ public class DeviceService {
         DeviceSettings s = getSettings();
         sendCommand(cmd("SET_TARGET", "gram", s.getTargetGram()));
         sendCommand(cmd("AUTO", "enabled", s.getAutoMode()));
-        sendCommand(cmd("PUMP_AUTO", "enabled", s.getPumpAuto(), "seconds", s.getPumpSeconds()));
         pendingSyncUntil = Instant.now().plus(SYNC_GRACE);
     }
 
@@ -435,8 +464,6 @@ public class DeviceService {
                 .scheduleTimes(splitTimes(s.getScheduleTimes()))
                 .feederPetId(pet != null ? pet.getId() : null)
                 .feederPetName(pet != null ? pet.getName() : null)
-                .pumpAuto(s.getPumpAuto())
-                .pumpSeconds(s.getPumpSeconds())
                 .build();
     }
 

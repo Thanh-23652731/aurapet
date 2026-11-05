@@ -17,6 +17,4 @@ public class DeviceSettingsDto {
     private List<String> scheduleTimes;
     private UUID feederPetId;
     private String feederPetName;
-    private Boolean pumpAuto;
-    private Integer pumpSeconds;
 }

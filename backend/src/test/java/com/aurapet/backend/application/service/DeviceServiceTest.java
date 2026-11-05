@@ -72,8 +72,18 @@ class DeviceServiceTest {
 
     private void telemetry(double weight, boolean feeding) throws Exception {
         service.handleTelemetry("{\"weight\":" + weight + ",\"foodLevelPercent\":70,\"lowFood\":false,"
-                + "\"petPresent\":false,\"autoMode\":false,\"isFeeding\":" + feeding + ",\"ip\":\"192.168.1.5\","
-                + "\"pumpSupported\":false}");
+                + "\"petPresent\":false,\"autoMode\":false,\"isFeeding\":" + feeding + ",\"ip\":\"192.168.1.5\"}");
+    }
+
+    private void water(int percent, boolean low) throws Exception {
+        service.handleWater("{\"waterPercent\":" + percent + ",\"waterCm\":3.0,\"lowWater\":" + low
+                + ",\"sensorOk\":" + (percent >= 0) + ",\"ip\":\"192.168.1.6\"}");
+    }
+
+    private List<String> alertMessages() {
+        var captor = org.mockito.ArgumentCaptor.forClass(Alert.class);
+        verify(alertRepo, atLeast(0)).save(captor.capture());
+        return captor.getAllValues().stream().map(Alert::getMessage).toList();
     }
 
     @Test
@@ -88,7 +98,51 @@ class DeviceServiceTest {
     void syncSettingsWhenOnline() throws Exception {
         telemetry(3, false);
         assertThat(service.isOnline()).isTrue();
-        assertThat(publisher.actions()).containsExactly("SET_TARGET", "AUTO", "PUMP_AUTO");
+        assertThat(publisher.actions()).containsExactly("SET_TARGET", "AUTO");
+    }
+
+    @Test
+    @DisplayName("Mèo đến gần không còn bật bơm; chỉ cho ăn khi bật Tự động và khay gần hết")
+    void visionNeverSendsPump() throws Exception {
+        telemetry(3, false);
+        service.updateSettings(UpdateDeviceSettingsRequest.builder().autoMode(true).build());
+        publisher.sent.clear();
+
+        service.handleVision("{\"catPresent\":true,\"confidence\":0.9}");
+
+        assertThat(publisher.actions()).containsExactly("FEED");
+        assertThat(publisher.sent.get(0)).containsEntry("source", "Camera AI");
+    }
+
+    @Test
+    @DisplayName("Mực nước: hiện trên trạng thái, báo 1 lần khi sắp cạn và báo khi đã đổ thêm")
+    void lowWaterAlertsOnceAndOnRefill() throws Exception {
+        assertThat(service.getState().isWaterOnline()).isFalse();
+
+        water(60, false);
+        var st = service.getState();
+        assertThat(st.isWaterOnline()).isTrue();
+        assertThat(st.getWaterPercent()).isEqualTo(60);
+        assertThat(st.isLowWater()).isFalse();
+
+        water(15, true);
+        water(14, true);   // vẫn cạn -> không nhắc lại
+        assertThat(service.getState().isLowWater()).isTrue();
+        assertThat(alertMessages().stream().filter(m -> m.startsWith("Bình nước sắp cạn"))).hasSize(1);
+
+        water(80, false);
+        assertThat(alertMessages()).anyMatch(m -> m.startsWith("Đã đổ thêm nước"));
+        assertThat(publisher.sent).isEmpty();   // chỉ theo dõi, không gửi lệnh bơm nào
+    }
+
+    @Test
+    @DisplayName("Cảm biến nước lỗi -> không có % nhưng vẫn online")
+    void waterSensorError() throws Exception {
+        water(-1, false);
+        var st = service.getState();
+        assertThat(st.isWaterOnline()).isTrue();
+        assertThat(st.isWaterSensorOk()).isFalse();
+        assertThat(st.getWaterPercent()).isNull();
     }
 
     @Test

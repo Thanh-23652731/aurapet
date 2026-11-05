@@ -147,6 +147,10 @@ public class GeminiAiService {
             sb.append(String.format(", khay còn %.0f g, thùng chứa %d%%", d.getBowlWeightGram(), d.getFoodLevelPercent()));
         }
         sb.append(", khẩu phần cài đặt ").append(d.getSettings().getTargetGram()).append(" g\n");
+        sb.append("- Bình nước (bơm tuần hoàn): ");
+        if (!d.isWaterOnline()) sb.append("chưa có số liệu cảm biến\n");
+        else if (d.getWaterPercent() == null) sb.append("cảm biến đang lỗi\n");
+        else sb.append("còn ").append(d.getWaterPercent()).append('%').append(d.isLowWater() ? " (SẮP CẠN, cần đổ thêm)" : "").append('\n');
         sb.append("- Giờ hiện tại: ").append(DeviceService.nowHhMm()).append('\n');
         return sb.toString();
     }

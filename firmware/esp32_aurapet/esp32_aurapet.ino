@@ -5,7 +5,8 @@
  *  - Nhận lệnh từ Web/App qua MQTT (backend chuyển tiếp), gửi trạng thái 2s/lần
  *  - Cân HX711 đo đúng số gram nhả ra, động cơ bước có gia tốc
  *  - Tự động cho ăn khi phát hiện mèo VÀ khay < 10g (đúng lưu đồ Hình 6)
- *  - Bơm nước tuỳ chọn (đặt PUMP_PIN để bật) - lưu đồ Hình 4
+ *  - Bình nước dùng bơm tuần hoàn chạy liên tục; mực nước do ESP32 máy dọn cát
+ *    (firmware/esp32_litter_water) đo và báo về web/app - máy này KHÔNG điều khiển bơm
  *  - Topic bí mật + Last Will "offline" để web biết máy mất kết nối ngay
  *
  *  ĐỔI WI-FI KHÔNG CẦN NẠP LẠI CODE:
@@ -53,11 +54,6 @@
 #define HX_SCK 4
 #define SDA_PIN 21
 #define SCL_PIN 22
-
-// Bơm nước qua relay/MOSFET. Để -1 nếu CHƯA lắp bơm (web sẽ hiện "Chưa lắp bơm").
-// Gợi ý chân trống an toàn: 15 hoặc 2.
-#define PUMP_PIN -1
-#define PUMP_ACTIVE_HIGH true
 
 // =============================================================================
 // 2. THÔNG SỐ VẬN HÀNH
@@ -115,12 +111,6 @@ int feedCount = 0;
 unsigned long lastAuto = 0;
 unsigned long lastTelemetry = 0, lastLcd = 0, lastPrint = 0;
 String statusMsg = "San sang";
-
-bool pumpAuto = false;
-int pumpSeconds = 30;
-bool pumpOn = false;
-unsigned long pumpOffAt = 0;
-const bool PUMP_SUPPORTED = (PUMP_PIN >= 0);
 
 // =============================================================================
 // 5. TIỆN ÍCH PHẦN CỨNG
@@ -231,19 +221,6 @@ void showLcd() {
   lcdLine(1, l1);
 }
 
-// ---- Bơm nước ----
-void setPump(bool on, int seconds) {
-  if (!PUMP_SUPPORTED) return;
-  pumpOn = on;
-  digitalWrite(PUMP_PIN, (on == PUMP_ACTIVE_HIGH) ? HIGH : LOW);
-  pumpOffAt = on ? millis() + (unsigned long)constrain(seconds, 5, 300) * 1000UL : 0;
-  logMsg(on ? "Bat bom nuoc" : "Tat bom nuoc");
-}
-
-void servicePump() {
-  if (pumpOn && pumpOffAt != 0 && (long)(millis() - pumpOffAt) >= 0) setPump(false, 0);
-}
-
 // =============================================================================
 // 6. MQTT: GỬI DỮ LIỆU
 // =============================================================================
@@ -264,9 +241,6 @@ void publishTelemetry() {
   doc["ssid"] = WiFi.SSID();
   doc["msg"] = statusMsg;
   doc["scaleOk"] = scaleOk;
-  doc["pumpSupported"] = PUMP_SUPPORTED;
-  doc["pumpOn"] = pumpOn;
-  doc["pumpAuto"] = pumpAuto;
   char buf[640];
   serializeJson(doc, buf, sizeof(buf));
   mqtt.publish(tTelemetry.c_str(), buf);
@@ -329,7 +303,6 @@ void feed(const char *source) {
       }
     }
     mqtt.loop();
-    servicePump();
     if (readWeight(1) >= goal) reached = true;
     if (millis() - lastPub > 1000) {
       publishTelemetry();
@@ -384,11 +357,6 @@ void onMqttMessage(char *topic, byte *payload, unsigned int length) {
   } else if (action == "SET_TARGET") {
     if (doc["gram"].is<float>()) TARGET_GRAM = clampGram(doc["gram"].as<float>());
     logMsg("Khau phan " + String(TARGET_GRAM, 0) + "g");
-  } else if (action == "PUMP") {
-    setPump(doc["on"] | false, doc["seconds"] | pumpSeconds);
-  } else if (action == "PUMP_AUTO") {
-    pumpAuto = doc["enabled"] | false;
-    pumpSeconds = constrain((int)(doc["seconds"] | pumpSeconds), 5, 300);
   }
   publishTelemetry();
 }
@@ -504,10 +472,6 @@ void setup() {
   pinMode(DIR_PIN, OUTPUT);
   pinMode(EN_PIN, OUTPUT);
   digitalWrite(EN_PIN, HIGH);
-  if (PUMP_SUPPORTED) {
-    pinMode(PUMP_PIN, OUTPUT);
-    setPump(false, 0);
-  }
 
   Wire.begin(SDA_PIN, SCL_PIN);
   setupLcd();
@@ -567,7 +531,6 @@ void loop() {
   // 2. Cảm biến
   currentDist = readDistanceCm();
   readWeight(1);
-  servicePump();
 
   // 3. Nút bấm vật lý
   if (pressed(BTN_AUTO)) {
@@ -584,7 +547,6 @@ void loop() {
   // 4. Mèo đến / đi
   if (updateSensor(digitalRead(SENSOR_PIN))) {
     logMsg(petPresent ? "Co meo den" : "Meo da di");
-    if (petPresent && pumpAuto) setPump(true, pumpSeconds);
     publishTelemetry();
   }
 

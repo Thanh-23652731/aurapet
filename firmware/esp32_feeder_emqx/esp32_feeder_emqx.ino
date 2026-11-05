@@ -18,7 +18,6 @@
  *   {"action":"TARE"}                            trừ bì cân về 0 g
  *   {"action":"SET_TARGET","gram":40}            đổi khẩu phần mặc định
  *   {"action":"AUTO","enabled":true}             bật/tắt tự cho ăn khi mèo đến
- *   {"action":"PUMP",...} / {"action":"PUMP_AUTO",...}  bỏ qua (máy chưa lắp bơm)
  *
  * Giữ nguyên phần cứng: động cơ bước có gia tốc, cân HX711, siêu âm,
  * cảm biến mèo, 4 nút bấm, LCD I2C, LED.
@@ -389,7 +388,6 @@ void publishTelemetryToMqtt() {
   json += "\"isFeeding\":" + String(isFeedingNow ? "true" : "false") + ",";
   json += "\"feedCount\":" + String(feedCount) + ",";
   json += "\"scaleOk\":" + String(scaleOk ? "true" : "false") + ",";
-  json += "\"pumpSupported\":false,\"pumpOn\":false,"; // máy này chưa lắp bơm
   json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   json += "\"msg\":\"" + jsonEscape(lastStatusMsg) + "\"";
@@ -568,8 +566,6 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     autoMode = jsonBool(message, "enabled", b) ? b : !autoMode;
     logMsg(autoMode ? "Web: Bat TU DONG" : "Web: Chuyen THU CONG");
     publishTelemetryToMqtt();
-  } else if (action == "PUMP" || action == "PUMP_AUTO") {
-    Serial.println("[MQTT] May nay chua lap bom nuoc - bo qua lenh.");
   } else {
     Serial.println("[MQTT] Lenh khong ro: " + action);
   }

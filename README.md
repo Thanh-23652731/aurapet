@@ -4,8 +4,8 @@ Máy cho ăn ESP32 + backend Spring Boot + web dashboard + app Flutter. Mọi n�
 
 ```
  Web dashboard ─┐                         ┌─> ESP32 máy cho ăn (cân HX711, động cơ bước,
- App Flutter  ──┼─ REST + JWT ─> Backend ─┤      siêu âm, cảm biến mèo, bơm nước tuỳ chọn)
-                │   (Spring Boot)  │  MQTT │
+ App Flutter  ──┼─ REST + JWT ─> Backend ─┤      siêu âm thùng hạt, cảm biến mèo)
+                │   (Spring Boot)  │  MQTT ├─< ESP32 máy dọn cát + siêu âm mực nước bình bơm tuần hoàn
                 │                  │       └─< Raspberry Pi: camera phát hiện mèo
                 └───────────── MariaDB / Supabase PostgreSQL
 ```
@@ -18,7 +18,7 @@ Máy cho ăn ESP32 + backend Spring Boot + web dashboard + app Flutter. Mọi n�
 
 | Màn hình | Làm được gì |
 |---|---|
-| Điều khiển | Cho ăn ngay theo khẩu phần, dừng khẩn cấp, xem khay (gram) và thùng chứa (%), trừ bì cân, tự cho ăn khi mèo đến (chỉ khi khay < 10 g), lịch hẹn giờ, bơm nước |
+| Điều khiển | Cho ăn ngay theo khẩu phần, dừng khẩn cấp, xem khay (gram) và thùng chứa (%), trừ bì cân, tự cho ăn khi mèo đến (chỉ khi khay < 10 g), lịch hẹn giờ, mực nước bình bơm (báo khi sắp cạn) |
 | Thú cưng | Thêm/sửa/xoá, điểm sức khoẻ, lượng ăn 7 ngày, biểu đồ cân nặng, gán bé cho máy cho ăn |
 | Lịch sử | Lượng ăn 7 ngày, danh sách các lần cho ăn và nguồn lệnh |
 | Bác sĩ AI | Hỏi đáp dựa trên dữ liệu thật của bé (Gemini, key giữ trên server) |
@@ -52,11 +52,10 @@ Tài liệu đầy đủ tự sinh tại `/swagger-ui.html`.
 
 | Phương thức | Đường dẫn | Mô tả |
 |---|---|---|
-| GET | `/api/v1/device/state` | Trạng thái máy (gọi 2 giây/lần) |
+| GET | `/api/v1/device/state` | Trạng thái máy + mực nước (`waterPercent`, `lowWater`), gọi 2 giây/lần |
 | POST | `/api/v1/device/feed` | `{gram, source}` cho ăn ngay |
 | POST | `/api/v1/device/stop` · `/tare` | Dừng động cơ · trừ bì cân |
-| POST | `/api/v1/device/pump` | `{on}` bật/tắt bơm |
-| PUT | `/api/v1/device/settings` | Khẩu phần, tự động, lịch hẹn giờ, bé của máy, bơm tự động |
+| PUT | `/api/v1/device/settings` | Khẩu phần, tự động, lịch hẹn giờ, bé của máy |
 | GET | `/api/v1/device/feedings` | Lịch sử cho ăn |
 
 Máy offline → HTTP 409 kèm thông báo tiếng Việt để giao diện hiển thị.

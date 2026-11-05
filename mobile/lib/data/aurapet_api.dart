@@ -35,7 +35,6 @@ class AuraPetApi {
   Future<DeviceState> feed(int gram) async => _state(await client.post('/api/v1/device/feed', {'gram': gram, 'source': 'App'}));
   Future<DeviceState> stop() async => _state(await client.post('/api/v1/device/stop'));
   Future<DeviceState> tare() async => _state(await client.post('/api/v1/device/tare'));
-  Future<DeviceState> pump(bool on) async => _state(await client.post('/api/v1/device/pump', {'on': on}));
   Future<DeviceState> updateSettings(Map<String, dynamic> patch) async =>
       _state(await client.put('/api/v1/device/settings', patch));
 

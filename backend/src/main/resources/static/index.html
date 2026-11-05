@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AuraPet – Chăm sóc mèo</title>
-<meta name="description" content="AuraPet: cho ăn, bơm nước, theo dõi khay vệ sinh và sức khoẻ mèo.">
+<meta name="description" content="AuraPet: cho ăn, theo dõi bình nước, khay vệ sinh và sức khoẻ mèo.">
 <meta name="theme-color" content="#F6F2EA">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -205,19 +205,15 @@
         <!-- Nước -->
         <article class="panel dev dev-water" aria-labelledby="water-title">
           <header class="dev-head">
-            <h2 id="water-title"><svg class="ico"><use href="#i-drop"/></svg>Máy bơm nước</h2>
-            <span class="badge off" id="pump-state"><i></i><span>–</span></span>
+            <h2 id="water-title"><svg class="ico"><use href="#i-drop"/></svg>Bình nước</h2>
+            <span class="badge off" id="water-state"><i></i><span>–</span></span>
           </header>
           <dl class="kv">
-            <div><dt>Bơm</dt><dd id="pump-now">–</dd></div>
-            <div><dt>Mực nước</dt><dd class="na">Chưa có cảm biến</dd></div>
+            <div><dt>Mực nước</dt><dd><span class="meter" aria-hidden="true"><i id="water-fill"></i></span><b id="water-pct">–</b></dd></div>
+            <div><dt>Bơm</dt><dd>Tuần hoàn liên tục</dd></div>
+            <div><dt>Cập nhật</dt><dd id="water-seen">–</dd></div>
           </dl>
-          <button class="btn btn-block" id="pump-btn" disabled><svg class="ico"><use href="#i-drop"/></svg><span id="pump-btn-text">Bật bơm</span></button>
-          <p class="dev-note" id="pump-note"></p>
-          <div class="switch-row">
-            <label for="pump-auto-sw">Tự bơm khi mèo đến<small>Chạy <b id="pump-sec">30</b> giây mỗi lần</small></label>
-            <button class="switch" role="switch" aria-checked="false" id="pump-auto-sw"></button>
-          </div>
+          <p class="dev-note" id="water-note"></p>
         </article>
 
         <!-- Khay vệ sinh -->
@@ -319,7 +315,6 @@
         <div class="panel stack">
           <h2>Thiết bị</h2>
           <label class="field"><span>Bé được ghi nhật ký khi máy nhả hạt</span><select id="feeder-pet-select"></select></label>
-          <label class="field"><span>Thời gian bơm mỗi lần (giây)</span><input id="pump-seconds" type="number" min="5" max="300" step="5"></label>
           <p class="hint" id="device-info"></p>
         </div>
         <form class="panel stack" id="profile-form">

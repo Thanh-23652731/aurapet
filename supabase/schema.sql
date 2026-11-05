@@ -92,10 +92,11 @@ CREATE TABLE IF NOT EXISTS public.device_settings (
     schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     schedule_times VARCHAR(255) DEFAULT '07:00,12:00,18:00',
     feeder_pet_id UUID,
-    pump_auto BOOLEAN NOT NULL DEFAULT FALSE,
-    pump_seconds INTEGER NOT NULL DEFAULT 30,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+-- Bơm nước là bơm tuần hoàn chạy liên tục (chỉ theo dõi mực nước), bỏ cài đặt "tự bơm khi mèo đến" của bản cũ
+ALTER TABLE public.device_settings DROP COLUMN IF EXISTS pump_auto;
+ALTER TABLE public.device_settings DROP COLUMN IF EXISTS pump_seconds;
 
 -- Gỡ các bảng giả lập của phiên bản cũ (không còn dùng)
 DROP TABLE IF EXISTS public.system_status;

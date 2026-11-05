@@ -43,14 +43,6 @@ public class DeviceSettings {
     /** Con mèo được gán cho máy cho ăn (log cho ăn sẽ ghi cho con này). */
     private UUID feederPetId;
 
-    /** Tự bật bơm nước khi mèo đến gần (chỉ khi đã lắp bơm). */
-    @Column(nullable = false)
-    private Boolean pumpAuto;
-
-    /** Số giây bơm chạy mỗi lần. */
-    @Column(nullable = false)
-    private Integer pumpSeconds;
-
     @UpdateTimestamp
     private Instant updatedAt;
 }

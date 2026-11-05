@@ -52,6 +52,6 @@ VALUES
     (gen_random_uuid(), 'WATER_STATUS', 'INFO', 'Hệ thống lọc tuần hoàn nước hoạt động ổn định.', CURRENT_TIMESTAMP);
 
 -- Cài đặt máy cho ăn mặc định
-INSERT INTO public.device_settings (id, target_gram, auto_mode, schedule_enabled, schedule_times, pump_auto, pump_seconds)
-VALUES (1, 30, FALSE, FALSE, '07:00,12:00,18:00', FALSE, 30)
+INSERT INTO public.device_settings (id, target_gram, auto_mode, schedule_enabled, schedule_times)
+VALUES (1, 30, FALSE, FALSE, '07:00,12:00,18:00')
 ON CONFLICT (id) DO NOTHING;

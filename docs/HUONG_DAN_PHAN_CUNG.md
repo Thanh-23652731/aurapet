@@ -1,4 +1,4 @@
-# Hướng dẫn phần cứng: ESP32 máy cho ăn và Raspberry Pi camera
+# Hướng dẫn phần cứng: ESP32 máy cho ăn, ESP32 máy dọn cát + bình nước, Raspberry Pi camera
 
 ## 1. Đấu dây ESP32 (đúng với firmware `esp32_aurapet.ino`)
 
@@ -11,9 +11,8 @@
 | Nút Cho ăn / Dừng / Tự động / Trừ bì | 1 chân | GPIO 32 / 33 / 25 / 26 | Chân còn lại nối GND (dùng `INPUT_PULLUP`) |
 | LED đỏ / LED xanh | Anode qua trở 220 Ω | GPIO 27 / 14 | Đỏ = sắp hết hạt |
 | LCD 16x2 I2C | SDA / SCL | GPIO 21 / 22 | Địa chỉ 0x27 hoặc 0x3F (tự dò) |
-| Bơm nước (tuỳ chọn) qua relay/MOSFET | IN | `PUMP_PIN` (gợi ý GPIO 15) | Mặc định `-1` = chưa lắp; web/app sẽ báo "Chưa lắp bơm" |
 
-Động cơ bước và bơm nên dùng nguồn riêng, nối chung GND với ESP32.
+Động cơ bước nên dùng nguồn riêng, nối chung GND với ESP32.
 
 ## 2. Nạp firmware
 
@@ -23,8 +22,7 @@
    - `WIFI_SSID`, `WIFI_PASS`
    - `MQTT_HOST`, `MQTT_PORT`, `MQTT_USE_TLS`, `MQTT_USER`, `MQTT_PASS`
    - `TOPIC_PREFIX` — **phải giống hệt** `MQTT_TOPIC_PREFIX` trong file `.env` của backend
-4. Nếu đã lắp bơm: sửa `#define PUMP_PIN -1` thành chân thật (ví dụ `15`).
-5. Chọn board *ESP32 Dev Module* → Upload → mở Serial Monitor 115200 để xem log.
+4. Chọn board *ESP32 Dev Module* → Upload → mở Serial Monitor 115200 để xem log.
 
 `secrets.h` đã nằm trong `.gitignore` nên mật khẩu Wi-Fi không bị đưa lên GitHub.
 
@@ -64,9 +62,29 @@ Backend `.env` và `secrets.h` phải dùng cùng broker và cùng prefix.
 | Cảnh báo "động cơ chạy nhưng cân không tăng" | Thùng hết hạt, kẹt vít tải, hoặc cân chưa hiệu chuẩn |
 | Số gram âm/lệch | Bỏ khay trống → Trừ bì; chỉnh `CALIB_FACTOR` |
 
-## 6. Camera nhận diện mèo (YOLOv8) — Raspberry Pi 4 hoặc laptop
+## 6. ESP32 máy dọn cát + mực nước bình bơm tuần hoàn
 
-Script `firmware/raspberry_pi/cat_detection_gateway.py` dùng YOLOv8n (lớp `cat` của COCO). Mỗi khi mèo **đến gần** camera — nhận diện đủ `CAT_STABLE_FRAMES` lần liên tiếp, tâm nằm trong `CAT_ROI` và chiếm ít nhất `CAT_NEAR_AREA` khung hình — Pi gửi `{"catPresent": true}` lên `PREFIX/vision`; khi mèo rời đi gửi `false`. Backend tự quyết định bật bơm hoặc cho ăn theo cài đặt (có chống cho ăn lặp 90 giây). Đồng thời hình trực tiếp có khung đánh dấu mèo được gửi lên web/app.
+Firmware `firmware/esp32_litter_water/esp32_litter_water.ino`. Bơm tuần hoàn cắm nguồn riêng và **chạy liên tục**; ESP32 không bật/tắt bơm mà chỉ đo mực nước bằng HC-SR04 thứ hai và báo lên web/app khi sắp cạn để người dùng đổ thêm.
+
+| Linh kiện | Chân linh kiện | Chân ESP32 | Ghi chú |
+|---|---|---|---|
+| Cảm biến mèo PIR | OUT | GPIO 32 | Mức LOW = có mèo (`PIR_MUC_CO_MEO`) |
+| Driver động cơ bước cào cát | STEP / DIR | GPIO 26 / 27 | |
+| HC-SR04 mực nước | TRIG / ECHO | GPIO 25 / 34 | ECHO 5V qua cầu chia áp (1k nối tiếp, 2k xuống GND) |
+| Nút dọn thủ công | 1 chân | GPIO 33 | Chân còn lại nối GND |
+| LED đỏ / xanh | Anode qua trở 220 Ω | GPIO 12 / 14 | |
+| LCD 16x2 I2C | SDA / SCL | GPIO 21 / 22 | Dòng trên hiện mực nước |
+
+1. Library Manager → cài **PubSubClient** (Nick O'Leary) và **LiquidCrystal I2C**.
+2. Sao chép `secrets.example.h` thành `secrets.h`, điền Wi-Fi và MQTT **giống hệt** máy cho ăn (cùng `TOPIC_PREFIX`).
+3. Đo bình thật rồi sửa `NUOC_CAN_CM` (0%) và `NUOC_DAY_CM` (100%); `NUOC_THAP_PT = 20` là ngưỡng báo sắp hết nước (hết báo khi lên lại ≥ 25%).
+4. Nạp code, mở Serial Monitor 115200: thấy `[MQTT] Da ket noi` và `Nuoc: 45% (4.2 cm)` mỗi 2 giây.
+
+ESP32 gửi `PREFIX/water` mỗi 5 giây (và ngay khi đổi trạng thái). Web/app hiện thẻ **Bình nước** với % nước; khi sắp cạn sẽ hiện "Sắp hết nước", thông báo trên đầu trang và mục Hoạt động. Mất Wi-Fi thì máy vẫn dọn cát và đo nước bình thường, chỉ không gửi lên web.
+
+## 7. Camera nhận diện mèo (YOLOv8) — Raspberry Pi 4 hoặc laptop
+
+Script `firmware/raspberry_pi/cat_detection_gateway.py` dùng YOLOv8n (lớp `cat` của COCO). Mỗi khi mèo **đến gần** camera — nhận diện đủ `CAT_STABLE_FRAMES` lần liên tiếp, tâm nằm trong `CAT_ROI` và chiếm ít nhất `CAT_NEAR_AREA` khung hình — Pi gửi `{"catPresent": true}` lên `PREFIX/vision`; khi mèo rời đi gửi `false`. Backend cho ăn nếu đang bật Tự động và khay < 10 g (có chống cho ăn lặp 90 giây). Đồng thời hình trực tiếp có khung đánh dấu mèo được gửi lên web/app.
 
 ```bash
 pip install -r firmware/raspberry_pi/requirements.txt

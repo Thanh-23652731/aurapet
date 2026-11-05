@@ -28,10 +28,4 @@ public class UpdateDeviceSettingsRequest {
     private List<String> scheduleTimes;
 
     private UUID feederPetId;
-
-    private Boolean pumpAuto;
-
-    @Min(value = 5, message = "Tối thiểu 5 giây")
-    @Max(value = 300, message = "Tối đa 300 giây")
-    private Integer pumpSeconds;
 }

@@ -95,6 +95,7 @@ node_modules/
 dist/
 build/
 firmware/esp32_feeder_emqx/secrets.h
+firmware/esp32_litter_water/secrets.h
 firmware/machchoan/
 
 # === Python / AI camera ===

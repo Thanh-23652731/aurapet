@@ -9,7 +9,7 @@ import '../data/models.dart';
 import '../state/providers.dart';
 import 'widgets.dart';
 
-/// Màn hình chính: cho ăn, xem khay & thùng chứa, chế độ tự động, lịch hẹn giờ, bơm nước.
+/// Màn hình chính: cho ăn, xem khay & thùng chứa, chế độ tự động, lịch hẹn giờ, mực nước bình bơm.
 class ControlScreen extends ConsumerStatefulWidget {
   const ControlScreen({super.key});
 
@@ -233,31 +233,8 @@ class _ControlScreenState extends ConsumerState<ControlScreen> {
           ),
           const SizedBox(height: 12),
 
-          // ---------------- Bơm nước
-          Panel(
-            child: Column(children: [
-              SwitchLine(
-                title: 'Bơm nước',
-                icon: Icons.water_drop_outlined,
-                subtitle: !online
-                    ? 'Máy đang offline'
-                    : !d!.pumpSupported
-                        ? 'Chưa lắp bơm — đặt PUMP_PIN trong firmware để dùng'
-                        : d.pumpOn
-                            ? 'Đang bơm'
-                            : 'Đang tắt',
-                value: online && (d?.pumpOn ?? false),
-                onChanged: (online && (d?.pumpSupported ?? false)) ? (v) => _do(() => dev.pump(v)) : null,
-              ),
-              const Divider(height: 20),
-              SwitchLine(
-                title: 'Tự bơm khi mèo đến',
-                subtitle: 'Chạy ${s.pumpSeconds} giây mỗi lần.',
-                value: s.pumpAuto,
-                onChanged: (d == null || (online && !d.pumpSupported)) ? null : (v) => _do(() => dev.settings({'pumpAuto': v})),
-              ),
-            ]),
-          ),
+          // ---------------- Bình nước (bơm tuần hoàn chạy liên tục, chỉ theo dõi mực nước)
+          _WaterPanel(d: d),
           const SizedBox(height: 12),
 
           // ---------------- 7 ngày + hoạt động
@@ -461,6 +438,69 @@ class _Hopper extends StatelessWidget {
         widthFactor: 1,
         child: Container(color: low ? AppColors.warn : AppColors.kibA),
       ),
+    );
+  }
+}
+
+/// Bình nước bơm tuần hoàn: mực nước từ cảm biến siêu âm trên ESP32 máy dọn cát, báo khi sắp cạn.
+/// Bơm chạy liên tục bằng nguồn riêng nên app không có nút bật/tắt bơm.
+class _WaterPanel extends StatelessWidget {
+  final DeviceState? d;
+
+  const _WaterPanel({required this.d});
+
+  @override
+  Widget build(BuildContext context) {
+    final w = d;
+    final on = w?.waterOnline ?? false;
+    final ok = on && (w?.waterSensorOk ?? false) && (w?.waterPercent ?? -1) >= 0;
+    final low = on && (w?.lowWater ?? false);
+    final int? pct = ok ? w?.waterPercent : null;
+    final everSeen = w?.waterLastSeen != null;
+
+    final (String label, Color color) = !on
+        ? (everSeen ? ('Mất tín hiệu', AppColors.stop) : ('Chưa kết nối', context.muted))
+        : !ok
+            ? ('Lỗi cảm biến', AppColors.warn)
+            : low
+                ? ('Sắp hết nước', AppColors.warn)
+                : ('Đủ nước', AppColors.leaf);
+    final note = !on
+        ? (everSeen
+            ? 'ESP32 máy dọn cát mất kết nối ${ago(w?.waterLastSeen)}. Kiểm tra nguồn điện và Wi-Fi.'
+            : 'Chưa nhận mực nước. Nạp firmware esp32_litter_water cho ESP32 máy dọn cát.')
+        : !ok
+            ? 'Cảm biến siêu âm không đo được mặt nước, kiểm tra dây TRIG/ECHO.'
+            : low
+                ? 'Hãy đổ thêm nước để bơm không chạy khô và bé luôn có nước uống.'
+                : 'Bơm tuần hoàn chạy liên tục · cập nhật ${ago(w?.waterLastSeen)}';
+
+    return Panel(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        PanelTitle('Bình nước',
+            icon: Icons.water_drop_outlined,
+            trailing: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13))),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: (pct ?? 0) / 100,
+                minHeight: 10,
+                backgroundColor: context.soft,
+                color: low ? AppColors.warn : const Color(0xFF2B7BB9),
+                semanticsLabel: 'Mực nước',
+                semanticsValue: pct == null ? 'không rõ' : '$pct%',
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(pct == null ? '–' : '$pct%', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 6),
+        Text(note, style: TextStyle(color: low ? AppColors.warn : context.muted, fontSize: 13)),
+      ]),
     );
   }
 }

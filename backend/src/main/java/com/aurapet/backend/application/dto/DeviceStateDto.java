@@ -27,8 +27,16 @@ public class DeviceStateDto {
     private Integer wifiRssi;
     private String message;
 
-    private Boolean pumpSupported;
-    private Boolean pumpOn;
+    // ---- Bình nước bơm tuần hoàn (cảm biến siêu âm trên ESP32 máy dọn cát, topic PREFIX/water) ----
+    /** ESP32 máy dọn cát gửi mực nước trong 30 giây gần nhất. */
+    private boolean waterOnline;
+    private Instant waterLastSeen;
+    /** 0-100, null khi chưa có số liệu hoặc cảm biến lỗi. */
+    private Integer waterPercent;
+    private Double waterCm;
+    /** Nước dưới ngưỡng, cần đổ thêm. */
+    private boolean lowWater;
+    private boolean waterSensorOk;
 
     private Instant lastFeedAt;
     private Integer lastFeedGram;

@@ -4,9 +4,8 @@
 AuraPet - camera phát hiện mèo bằng YOLOv8 (chạy trên Raspberry Pi 4 hoặc laptop có webcam USB).
 
 Mỗi khi mèo đến gần camera (đủ số khung liên tiếp, nằm trong vùng ROI, đủ to trong khung hình):
-1) Gửi sự kiện "có mèo / không có mèo" qua MQTT, topic <TOPIC_PREFIX>/vision. Backend quyết định:
-     - bật bơm nước nếu bật "Tự bơm khi mèo đến" (lưu đồ Hình 4)
-     - cho ăn nếu đang ở chế độ Tự động VÀ khay < 10g (lưu đồ Hình 6)
+1) Gửi sự kiện "có mèo / không có mèo" qua MQTT, topic <TOPIC_PREFIX>/vision. Backend sẽ
+   cho ăn nếu đang ở chế độ Tự động VÀ khay < 10g (lưu đồ Hình 6).
 2) Gửi hình trực tiếp (JPEG, có khung đánh dấu mèo) lên backend qua HTTP để xem trên web/app.
    Ảnh đi thẳng tới máy chủ AuraPet (không qua broker MQTT công cộng) và chỉ được giữ
    khung mới nhất trong RAM máy chủ.

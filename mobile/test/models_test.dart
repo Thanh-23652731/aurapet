@@ -29,11 +29,17 @@ void main() {
         'bowlWeightGram': 12.5,
         'foodLevelPercent': 66,
         'feeding': false,
-        'pumpSupported': false,
+        'waterOnline': true,
+        'waterPercent': 15,
+        'lowWater': true,
+        'waterSensorOk': true,
         'lastFeedAt': '2026-10-27T05:52:16Z',
-        'settings': {'targetGram': 25, 'autoMode': true, 'scheduleTimes': ['07:00', '18:00'], 'pumpSeconds': 30},
+        'settings': {'targetGram': 25, 'autoMode': true, 'scheduleTimes': ['07:00', '18:00']},
       });
       expect(d.online, isTrue);
+      expect(d.waterOnline, isTrue);
+      expect(d.waterPercent, 15);
+      expect(d.lowWater, isTrue);
       expect(d.bowlWeightGram, 12.5);
       expect(d.settings.targetGram, 25);
       expect(d.settings.scheduleTimes, ['07:00', '18:00']);
@@ -44,6 +50,8 @@ void main() {
       final d = DeviceState.fromJson({});
       expect(d.online, isFalse);
       expect(d.foodLevelPercent, -1);
+      expect(d.waterPercent, -1);
+      expect(d.waterOnline, isFalse);
       expect(d.settings.targetGram, 30);
     });
 

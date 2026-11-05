@@ -380,7 +380,7 @@
     // Thùng chứa
     const pct = online && d.foodLevelPercent >= 0 ? d.foodLevelPercent : null;
     $('#hopper-fill').style.width = (pct ?? 0) + '%';
-    $('.meter').classList.toggle('low', !!d.lowFood);
+    $('#hopper-fill').parentElement.classList.toggle('low', !!d.lowFood);
     const hp = $('#hopper-pct');
     hp.textContent = pct == null ? 'Không rõ' : `${pct}%`;
     hp.className = pct == null ? 'na' : d.lowFood ? 'warn-t' : '';
@@ -419,25 +419,27 @@
     setSwitch('#sched-sw', set.scheduleEnabled);
     renderSchedule(set.scheduleTimes || [], nm, set.scheduleEnabled);
 
-    // Bơm nước
-    const pumpOk = d.brokerConnected && online && d.pumpSupported;
-    const ps = $('#pump-state');
-    if (!online) setBadge(ps, 'bad', 'Offline');
-    else if (!d.pumpSupported) setBadge(ps, 'off', 'Chưa lắp bơm');
-    else if (d.pumpOn) setBadge(ps, 'busy', 'Đang bơm');
-    else setBadge(ps, 'ok', 'Sẵn sàng');
-    $('#pump-now').innerHTML = !online ? '<span class="na">Không rõ</span>'
-      : !d.pumpSupported ? '<span class="na">Không có</span>'
-      : d.pumpOn ? '<span class="ok-t">Đang chạy</span>' : 'Đang tắt';
-    const pb = $('#pump-btn');
-    pb.disabled = !pumpOk;
-    $('#pump-btn-text').textContent = d.pumpOn ? 'Tắt bơm' : 'Bật bơm';
-    const pn = $('#pump-note');
-    pn.className = 'dev-note' + (!online ? ' bad' : '');
-    pn.textContent = !online ? 'Bơm dùng chung bộ điều khiển với máy cho ăn, đang mất kết nối.'
-      : !d.pumpSupported ? 'Chưa lắp bơm: đặt PUMP_PIN trong firmware để dùng.' : '';
-    setSwitch('#pump-auto-sw', set.pumpAuto, online && !d.pumpSupported);
-    $('#pump-sec').textContent = set.pumpSeconds ?? 30;
+    // Bình nước (cảm biến siêu âm trên ESP32 máy dọn cát; bơm tuần hoàn chạy liên tục, không điều khiển từ xa)
+    const wOn = d.waterOnline;
+    const wp = wOn && d.waterSensorOk ? d.waterPercent : null;
+    const ws = $('#water-state');
+    if (!wOn) setBadge(ws, d.waterLastSeen ? 'bad' : 'off', d.waterLastSeen ? 'Mất tín hiệu' : 'Chưa kết nối');
+    else if (!d.waterSensorOk) setBadge(ws, 'warn', 'Lỗi cảm biến');
+    else if (d.lowWater) setBadge(ws, 'warn', 'Sắp hết nước');
+    else setBadge(ws, 'ok', 'Đủ nước');
+    $('#water-fill').style.width = (wp ?? 0) + '%';
+    $('#water-fill').parentElement.classList.toggle('low', wOn && !!d.lowWater);
+    const wpe = $('#water-pct');
+    wpe.textContent = wp == null ? 'Không rõ' : `${wp}%`;
+    wpe.className = wp == null ? 'na' : d.lowWater ? 'warn-t' : '';
+    $('#water-seen').innerHTML = d.waterLastSeen ? esc(ago(d.waterLastSeen)) : '<span class="na">Chưa có</span>';
+    const wn = $('#water-note');
+    wn.className = 'dev-note' + (wOn && d.lowWater ? ' bad' : !wOn && d.waterLastSeen ? ' bad' : '');
+    wn.textContent = !wOn ? (d.waterLastSeen
+        ? 'ESP32 máy dọn cát mất kết nối, kiểm tra nguồn điện và Wi-Fi.'
+        : 'Chưa nhận mực nước. Nạp firmware esp32_litter_water cho ESP32 máy dọn cát.')
+      : !d.waterSensorOk ? 'Cảm biến siêu âm không đo được mặt nước, kiểm tra dây TRIG/ECHO.'
+      : d.lowWater ? 'Hãy đổ thêm nước để bơm không chạy khô và bé luôn có nước uống.' : '';
 
     renderNotices();
   }
@@ -446,8 +448,9 @@
   function renderNotices() {
     const d = S.device;
     const items = [];
-    if (d && !d.brokerConnected) items.push({ id: 'mqtt', kind: 'bad', text: '<b>Mất kết nối MQTT.</b> Lệnh cho ăn và bơm nước sẽ không tới thiết bị cho đến khi máy chủ kết nối lại.' });
+    if (d && !d.brokerConnected) items.push({ id: 'mqtt', kind: 'bad', text: '<b>Mất kết nối MQTT.</b> Lệnh cho ăn và số liệu bình nước sẽ không cập nhật cho đến khi máy chủ kết nối lại.' });
     if (d?.online && d.lowFood) items.push({ id: 'food', kind: 'warn', text: `<b>Thùng chứa sắp hết hạt${d.foodLevelPercent >= 0 ? ` (còn ${d.foodLevelPercent}%)` : ''}.</b> Hãy châm thêm để máy nhả đủ khẩu phần.` });
+    if (d?.waterOnline && d.lowWater) items.push({ id: 'water', kind: 'warn', text: `<b>Bình nước sắp cạn${d.waterPercent != null ? ` (còn ${d.waterPercent}%)` : ''}.</b> Hãy đổ thêm nước cho bé.` });
     const dayAgo = Date.now() - 86400000;
     (S.stats?.latestAlerts || [])
       .filter((a) => a.level === 'CRITICAL' && new Date(a.createdAt).getTime() > dayAgo)
@@ -638,11 +641,6 @@
   });
   $('#auto-sw').addEventListener('click', (e) => saveSettings({ autoMode: e.currentTarget.getAttribute('aria-checked') !== 'true' }));
   $('#sched-sw').addEventListener('click', (e) => saveSettings({ scheduleEnabled: e.currentTarget.getAttribute('aria-checked') !== 'true' }));
-  $('#pump-auto-sw').addEventListener('click', (e) => saveSettings({ pumpAuto: e.currentTarget.getAttribute('aria-checked') !== 'true' }));
-  $('#pump-btn').addEventListener('click', (e) => {
-    const on = !S.device?.pumpOn;
-    command('/api/v1/device/pump', { on }, e.currentTarget, on ? 'Đã gửi lệnh bật bơm' : 'Đã gửi lệnh tắt bơm');
-  });
 
   // Lịch hẹn giờ
   function renderSchedule(times, next, enabled) {
@@ -910,7 +908,6 @@
     f.name.value = S.user?.name || '';
     f.email.value = S.user?.email || '';
     $('#api-base-label').textContent = API;
-    $('#pump-seconds').value = S.device?.settings?.pumpSeconds ?? 30;
     const d = S.device;
     $('#device-info').textContent = d?.online ? `ESP32 tại ${d.ip}, đã nhả ${d.feedCountSinceBoot} lần từ lúc bật nguồn.` : 'Máy cho ăn đang offline.';
     renderPetSelects();
@@ -928,11 +925,6 @@
     if (u) { f.reset(); toast('Đã đổi mật khẩu', 'ok'); }
   });
   $('#feeder-pet-select').addEventListener('change', (e) => { if (e.target.value) saveSettings({ feederPetId: e.target.value }); });
-  $('#pump-seconds').addEventListener('change', (e) => {
-    const v = Math.max(5, Math.min(300, Number(e.target.value) || 30));
-    e.target.value = v;
-    saveSettings({ pumpSeconds: v });
-  });
 
   // ------------------------------------------------------------------ khởi động
   document.addEventListener('visibilitychange', () => { if (!document.hidden && token) { refreshState(); camLoop(); } });

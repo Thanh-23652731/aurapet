@@ -81,8 +81,6 @@ class DeviceSettings {
   final List<String> scheduleTimes;
   final String? feederPetId;
   final String? feederPetName;
-  final bool pumpAuto;
-  final int pumpSeconds;
 
   const DeviceSettings({
     this.targetGram = 30,
@@ -91,8 +89,6 @@ class DeviceSettings {
     this.scheduleTimes = const [],
     this.feederPetId,
     this.feederPetName,
-    this.pumpAuto = false,
-    this.pumpSeconds = 30,
   });
 
   factory DeviceSettings.fromJson(Map<String, dynamic> j) => DeviceSettings(
@@ -102,8 +98,6 @@ class DeviceSettings {
         scheduleTimes: _list(j['scheduleTimes']).map((e) => '$e').toList(),
         feederPetId: j['feederPetId'] as String?,
         feederPetName: j['feederPetName'] as String?,
-        pumpAuto: _bool(j['pumpAuto']),
-        pumpSeconds: _int(j['pumpSeconds'], 30),
       );
 }
 
@@ -119,8 +113,12 @@ class DeviceState {
   final int feedCountSinceBoot;
   final String? ip;
   final int? wifiRssi;
-  final bool pumpSupported;
-  final bool pumpOn;
+  // Bình nước bơm tuần hoàn (cảm biến siêu âm trên ESP32 máy dọn cát)
+  final bool waterOnline;
+  final DateTime? waterLastSeen;
+  final int waterPercent; // -1 = chưa có số liệu / cảm biến lỗi
+  final bool lowWater;
+  final bool waterSensorOk;
   final DateTime? lastFeedAt;
   final int? lastFeedGram;
   final String? lastFeedSource;
@@ -138,8 +136,11 @@ class DeviceState {
     this.feedCountSinceBoot = 0,
     this.ip,
     this.wifiRssi,
-    this.pumpSupported = false,
-    this.pumpOn = false,
+    this.waterOnline = false,
+    this.waterLastSeen,
+    this.waterPercent = -1,
+    this.lowWater = false,
+    this.waterSensorOk = false,
     this.lastFeedAt,
     this.lastFeedGram,
     this.lastFeedSource,
@@ -158,8 +159,11 @@ class DeviceState {
         feedCountSinceBoot: _int(j['feedCountSinceBoot']),
         ip: j['ip'] as String?,
         wifiRssi: j['wifiRssi'] == null ? null : _int(j['wifiRssi']),
-        pumpSupported: _bool(j['pumpSupported']),
-        pumpOn: _bool(j['pumpOn']),
+        waterOnline: _bool(j['waterOnline']),
+        waterLastSeen: _date(j['waterLastSeen']),
+        waterPercent: j['waterPercent'] == null ? -1 : _int(j['waterPercent'], -1),
+        lowWater: _bool(j['lowWater']),
+        waterSensorOk: _bool(j['waterSensorOk']),
         lastFeedAt: _date(j['lastFeedAt']),
         lastFeedGram: j['lastFeedGram'] == null ? null : _int(j['lastFeedGram']),
         lastFeedSource: j['lastFeedSource'] as String?,
