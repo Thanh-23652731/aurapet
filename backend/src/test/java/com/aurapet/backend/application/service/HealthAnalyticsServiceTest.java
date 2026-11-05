@@ -1,11 +1,12 @@
 package com.aurapet.backend.application.service;
 
+import com.aurapet.backend.application.dto.DailyFoodDto;
 import com.aurapet.backend.application.dto.HealthSummaryDto;
+import com.aurapet.backend.domain.model.FeedingLog;
 import com.aurapet.backend.domain.model.Gender;
 import com.aurapet.backend.domain.model.Pet;
 import com.aurapet.backend.domain.repository.FeedingLogRepository;
 import com.aurapet.backend.domain.repository.LitterLogRepository;
-import com.aurapet.backend.domain.repository.PetRepository;
 import com.aurapet.backend.domain.repository.WeightRecordRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,56 +15,67 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.Collections;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class HealthAnalyticsServiceTest {
 
     @Mock
-    private PetRepository petRepository;
-
+    private PetService petService;
     @Mock
     private WeightRecordRepository weightRecordRepository;
-
     @Mock
     private FeedingLogRepository feedingLogRepository;
-
     @Mock
     private LitterLogRepository litterLogRepository;
 
     @InjectMocks
     private HealthAnalyticsService healthAnalyticsService;
 
-    @Test
-    @DisplayName("Should generate Edge AI health summary")
-    void testGetHealthSummary() {
-        UUID petId = UUID.randomUUID();
-        Pet pet = Pet.builder()
-                .id(petId)
-                .name("Luna")
-                .breed("British Shorthair")
-                .age(2)
-                .gender(Gender.FEMALE)
-                .neutered(true)
-                .weight(4.25)
-                .build();
+    private final Actor actor = new Actor(UUID.randomUUID(), true);
 
-        when(petRepository.findById(petId)).thenReturn(Optional.of(pet));
-        when(feedingLogRepository.findByPetIdAndTimestampBetweenOrderByTimestampAsc(any(), any(), any())).thenReturn(Collections.emptyList());
-        when(litterLogRepository.findByPetIdAndTimestampBetweenOrderByTimestampAsc(any(), any(), any())).thenReturn(Collections.emptyList());
+    private Pet luna(UUID id) {
+        return Pet.builder().id(id).ownerId(actor.id()).name("Luna").breed("Mèo ta")
+                .age(2).gender(Gender.FEMALE).neutered(true).weight(4.0).build();
+    }
+
+    @Test
+    @DisplayName("Không có dữ liệu ăn -> có ghi chú nhắc và điểm giảm")
+    void summaryWithoutData() {
+        UUID petId = UUID.randomUUID();
+        when(petService.requireAccessible(petId, actor)).thenReturn(luna(petId));
+        when(feedingLogRepository.findByPetIdAndTimestampBetweenOrderByTimestampAsc(eq(petId), any(), any())).thenReturn(Collections.emptyList());
+        when(litterLogRepository.findByPetIdAndTimestampBetweenOrderByTimestampAsc(eq(petId), any(), any())).thenReturn(Collections.emptyList());
         when(weightRecordRepository.findByPetIdOrderByRecordedAtAsc(petId)).thenReturn(Collections.emptyList());
 
-        HealthSummaryDto summary = healthAnalyticsService.getHealthSummary(petId);
+        HealthSummaryDto s = healthAnalyticsService.getHealthSummary(petId, actor);
 
-        assertThat(summary).isNotNull();
-        assertThat(summary.getPetName()).isEqualTo("Luna");
-        assertThat(summary.getHealthScore()).isBetween(70, 100);
-        assertThat(summary.getAiRecommendation()).contains("Luna");
+        assertThat(s.getPetName()).isEqualTo("Luna");
+        assertThat(s.getExpectedDailyFoodGram()).isEqualTo(60);
+        assertThat(s.getHealthScore()).isEqualTo(85);
+        assertThat(s.getStatus()).isEqualTo("Cần theo dõi");
+        assertThat(s.getNotes()).anyMatch(n -> n.contains("Chưa có dữ liệu"));
+    }
+
+    @Test
+    @DisplayName("Tổng lượng ăn theo ngày luôn đủ 7 cột")
+    void dailyTotalsHasAllDays() {
+        UUID petId = UUID.randomUUID();
+        when(feedingLogRepository.findByPetIdInAndTimestampAfterOrderByTimestampAsc(any(), any()))
+                .thenReturn(List.of(FeedingLog.builder().petId(petId).foodGram(30).timestamp(Instant.now()).build()));
+
+        List<DailyFoodDto> days = healthAnalyticsService.dailyTotals(List.of(petId), 7);
+
+        assertThat(days).hasSize(7);
+        assertThat(days.get(6).getGram()).isEqualTo(30);
+        assertThat(days.get(6).getMeals()).isEqualTo(1);
     }
 }

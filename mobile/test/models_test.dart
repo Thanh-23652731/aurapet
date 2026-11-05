@@ -1,130 +1,89 @@
+import 'package:aurapet_mobile/core/api.dart';
+import 'package:aurapet_mobile/core/format.dart';
+import 'package:aurapet_mobile/data/models.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:aurapet_mobile/data/models/user.dart';
-import 'package:aurapet_mobile/data/models/pet.dart';
-import 'package:aurapet_mobile/data/models/system_status.dart';
-import 'package:aurapet_mobile/data/models/feeding_log.dart';
-import 'package:aurapet_mobile/data/models/litter_log.dart';
-import 'package:aurapet_mobile/data/models/alert.dart';
-import 'package:aurapet_mobile/data/models/health_summary.dart';
 
 void main() {
-  group('OpenAPI Schema Models Serialization Tests', () {
-    test('User model parses correctly', () {
-      final json = {
-        'id': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-        'name': 'Alex Johnson',
-        'email': 'admin@aurapet.com',
-        'role': 'ROLE_ADMIN',
-      };
-
-      final user = User.fromJson(json);
-      expect(user.id, 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
-      expect(user.name, 'Alex Johnson');
-      expect(user.email, 'admin@aurapet.com');
-      expect(user.isAdmin, isTrue);
+  group('Models', () {
+    test('User parses role', () {
+      final u = User.fromJson({'id': 'u1', 'name': 'An', 'email': 'a@b.com', 'role': 'ROLE_ADMIN'});
+      expect(u.isAdmin, isTrue);
+      expect(u.name, 'An');
     });
 
-    test('Pet model parses and serializes correctly', () {
-      final json = {
-        'id': 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-        'ownerId': 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-        'name': 'Luna',
-        'breed': 'British Shorthair',
-        'age': 2,
-        'gender': 'FEMALE',
-        'neutered': true,
-        'weight': 4.25,
-        'imageUrl': 'https://example.com/luna.jpg',
-      };
-
-      final pet = Pet.fromJson(json);
-      expect(pet.name, 'Luna');
-      expect(pet.breed, 'British Shorthair');
-      expect(pet.gender, 'FEMALE');
-      expect(pet.neutered, isTrue);
-      expect(pet.weight, 4.25);
-
-      final outJson = pet.toJson();
-      expect(outJson['name'], 'Luna');
-      expect(outJson['weight'], 4.25);
+    test('Pet parses and serializes without id/owner', () {
+      final p = Pet.fromJson({
+        'id': 'p1', 'ownerId': 'u1', 'name': 'Luna', 'breed': 'Mèo ta', 'age': 2,
+        'gender': 'FEMALE', 'neutered': true, 'weight': 4.25, 'imageUrl': '  ',
+      });
+      expect(p.weight, 4.25);
+      expect(p.imageUrl, isNull);
+      expect(p.toJson().containsKey('id'), isFalse);
+      expect(p.toJson()['name'], 'Luna');
     });
 
-    test('SystemStatus parses correctly', () {
-      final json = {
-        'feeder': true,
-        'waterPump': true,
-        'litterCleaner': false,
-        'esp32': 'ONLINE',
-        'raspberryPi': 'ONLINE',
-        'foodLevelPercent': 80,
-        'waterLevelPercent': 85,
-        'litterWastePercent': 20,
-      };
-
-      final status = SystemStatus.fromJson(json);
-      expect(status.feeder, isTrue);
-      expect(status.waterPump, isTrue);
-      expect(status.litterCleaner, isFalse);
-      expect(status.esp32, 'ONLINE');
-      expect(status.raspberryPi, 'ONLINE');
+    test('DeviceState parses telemetry and settings', () {
+      final d = DeviceState.fromJson({
+        'brokerConnected': true,
+        'online': true,
+        'bowlWeightGram': 12.5,
+        'foodLevelPercent': 66,
+        'feeding': false,
+        'pumpSupported': false,
+        'lastFeedAt': '2026-10-27T05:52:16Z',
+        'settings': {'targetGram': 25, 'autoMode': true, 'scheduleTimes': ['07:00', '18:00'], 'pumpSeconds': 30},
+      });
+      expect(d.online, isTrue);
+      expect(d.bowlWeightGram, 12.5);
+      expect(d.settings.targetGram, 25);
+      expect(d.settings.scheduleTimes, ['07:00', '18:00']);
+      expect(d.lastFeedAt, isNotNull);
     });
 
-    test('FeedingLog parses ISO-8601 timestamp', () {
-      final json = {
-        'id': 'c1eebc99-9c0b-4ef8-bb6d-6bb9bd380a33',
-        'petId': 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-        'foodGram': 45,
-        'timestamp': '2026-09-14T08:30:00Z',
-      };
-
-      final log = FeedingLog.fromJson(json);
-      expect(log.foodGram, 45);
-      expect(log.timestamp.year, 2026);
+    test('DeviceState tolerates missing fields', () {
+      final d = DeviceState.fromJson({});
+      expect(d.online, isFalse);
+      expect(d.foodLevelPercent, -1);
+      expect(d.settings.targetGram, 30);
     });
 
-    test('LitterLog parses results correctly', () {
-      final json = {
-        'id': 'd1eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
-        'petId': 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-        'result': 'NORMAL',
-        'timestamp': '2026-09-14T09:15:00Z',
-      };
-
-      final log = LitterLog.fromJson(json);
-      expect(log.result, 'NORMAL');
+    test('DashboardStats parses days and alerts', () {
+      final s = DashboardStats.fromJson({
+        'todayFoodGram': 56,
+        'feedingSessionsCount': 2,
+        'last7Days': [
+          {'date': '2026-10-26', 'gram': 120, 'meals': 4},
+          {'date': '2026-10-27', 'gram': 56, 'meals': 2},
+        ],
+        'latestAlerts': [
+          {'level': 'WARNING', 'message': 'Sắp hết hạt', 'createdAt': '2026-10-27T05:00:00Z'},
+        ],
+      });
+      expect(s.last7Days.length, 2);
+      expect(s.latestAlerts.first.level, 'WARNING');
     });
 
-    test('Alert parses level and message', () {
-      final json = {
-        'id': 'e1eebc99-9c0b-4ef8-bb6d-6bb9bd380a55',
-        'type': 'FEEDING',
-        'level': 'INFO',
-        'message': 'Dispensed food successfully',
-        'createdAt': '2026-09-14T08:30:00Z',
-      };
+    test('HealthSummary parses notes', () {
+      final h = HealthSummary.fromJson({
+        'healthScore': 88, 'status': 'Tốt', 'dailyAvgFoodGram': 60.0, 'expectedDailyFoodGram': 64,
+        'weeklyLitterVisits': 12, 'weightChangeKg': 0.03, 'notes': ['Lượng ăn ổn định'],
+      });
+      expect(h.healthScore, 88);
+      expect(h.notes.single, 'Lượng ăn ổn định');
+    });
+  });
 
-      final alert = Alert.fromJson(json);
-      expect(alert.level, 'INFO');
-      expect(alert.type, 'FEEDING');
-      expect(alert.message, 'Dispensed food successfully');
+  group('Helpers', () {
+    test('normalize server url', () {
+      expect(ApiClient.normalize('192.168.1.5:8080/'), 'http://192.168.1.5:8080');
+      expect(ApiClient.normalize('https://api.example.com//'), 'https://api.example.com');
     });
 
-    test('HealthSummary parses Edge AI recommendation', () {
-      final json = {
-        'petId': 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-        'petName': 'Luna',
-        'healthScore': 96,
-        'status': 'Optimal',
-        'dailyAvgFoodGram': 120.5,
-        'weeklyLitterVisits': 21,
-        'weightChangeKg': 0.05,
-        'aiRecommendation': 'Vital indicators are in prime zone.',
-      };
-
-      final summary = HealthSummary.fromJson(json);
-      expect(summary.healthScore, 96);
-      expect(summary.status, 'Optimal');
-      expect(summary.dailyAvgFoodGram, 120.5);
+    test('time formatting', () {
+      expect(two(7), '07');
+      expect(hhmm(DateTime(2026, 1, 1, 7, 5)), '07:05');
+      expect(weekday(DateTime(2026, 10, 26)), 'T2');
+      expect(ago(DateTime.now()), 'vừa xong');
     });
   });
 }

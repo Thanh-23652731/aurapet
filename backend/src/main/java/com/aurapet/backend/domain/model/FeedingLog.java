@@ -22,8 +22,13 @@ public class FeedingLog {
     @Column(nullable = false)
     private UUID petId;
 
+    /** Số gram thực tế máy nhả ra (đo bằng cân HX711). */
     @Column(nullable = false)
     private Integer foodGram;
+
+    /** Nguồn lệnh: Web, App, Nút vật lý, Tự động, Lịch hẹn giờ... */
+    @Column(length = 40)
+    private String source;
 
     @Column(nullable = false)
     private Instant timestamp;

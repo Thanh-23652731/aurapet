@@ -1,8 +1,11 @@
 package com.aurapet.backend.infrastructure.security;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -10,9 +13,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,7 +23,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 
@@ -63,51 +64,51 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Static resources & Swagger — always public
-                        .requestMatchers(
-                                "/",
-                                "/index.html",
-                                "/dashboard.html",
-                                "/favicon.ico",
-                                "/*.html",
-                                "/*.css",
-                                "/*.js",
-                                "/static/**",
-                                "/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/h2-console/**"
-                        ).permitAll()
-                        // Authentication endpoints — public
-                        .requestMatchers("/api/v1/auth/**").permitAll()
-                        // All other API endpoints require JWT authentication
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Giao diện web tĩnh
+                        .requestMatchers("/", "/index.html", "/app.css", "/app.js", "/favicon.svg", "/favicon.ico").permitAll()
+                        // Tài liệu API & health check
+                        .requestMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health").permitAll()
+                        // Chỉ đăng nhập/đăng ký và ping là công khai (/auth/me cần token)
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/ping").permitAll()
+                        // Raspberry Pi gửi ảnh lên: xác thực bằng X-Camera-Key trong CameraController (không dùng JWT)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/camera/frame").permitAll()
                         .anyRequest().authenticated()
                 )
-                .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::disable))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, e) ->
+                                writeJson(res, 401, "Phiên đăng nhập đã hết hạn hoặc chưa đăng nhập"))
+                        .accessDeniedHandler((req, res, e) ->
+                                writeJson(res, 403, "Bạn không có quyền thực hiện thao tác này")))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
+    private static void writeJson(jakarta.servlet.http.HttpServletResponse res, int status, String message)
+            throws java.io.IOException {
+        res.setStatus(status);
+        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        res.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        String safe = message.replace("\"", "'");
+        res.getWriter().write("{\"success\":false,\"message\":\"" + safe + "\",\"errors\":[\"" + safe + "\"]}");
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        if (configuredCorsOrigins != null && !configuredCorsOrigins.isBlank()) {
-            List<String> origins = Arrays.stream(configuredCorsOrigins.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .toList();
-            configuration.setAllowedOriginPatterns(origins);
-        } else {
-            // Chế độ phát triển & Tunnel: Cho phép mọi origin linh hoạt qua allowedOriginPatterns
-            configuration.setAllowedOriginPatterns(List.of("*"));
-        }
+        List<String> origins = (configuredCorsOrigins == null || configuredCorsOrigins.isBlank())
+                ? List.of("*")
+                : Arrays.stream(configuredCorsOrigins.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"));
-        configuration.setExposedHeaders(List.of("Authorization"));
-        configuration.setAllowCredentials(true);
-
+        configuration.setAllowedHeaders(List.of("*"));
+        // Web đọc thông tin khung hình camera từ các header này (khi chạy khác tên miền, vd. GitHub Pages)
+        configuration.setExposedHeaders(List.of("X-Camera-Online", "X-Frame-Seq", "X-Frame-Time",
+                "X-Cat-Present", "X-Cat-Confidence", "X-Camera-Fps"));
+        // Dùng token Bearer trong header, không dùng cookie -> không cần credentials
+        configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

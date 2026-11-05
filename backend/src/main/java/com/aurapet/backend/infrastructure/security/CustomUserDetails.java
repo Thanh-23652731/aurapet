@@ -1,5 +1,7 @@
 package com.aurapet.backend.infrastructure.security;
 
+import com.aurapet.backend.application.service.Actor;
+import com.aurapet.backend.domain.model.Role;
 import com.aurapet.backend.domain.model.User;
 import lombok.Getter;
 import org.springframework.security.core.GrantedAuthority;
@@ -16,13 +18,19 @@ public class CustomUserDetails implements UserDetails {
     private final UUID id;
     private final String email;
     private final String password;
+    private final boolean admin;
     private final Collection<? extends GrantedAuthority> authorities;
 
     public CustomUserDetails(User user) {
         this.id = user.getId();
         this.email = user.getEmail();
         this.password = user.getPassword();
+        this.admin = user.getRole() == Role.ROLE_ADMIN;
         this.authorities = List.of(new SimpleGrantedAuthority(user.getRole().name()));
+    }
+
+    public Actor toActor() {
+        return new Actor(id, admin);
     }
 
     @Override

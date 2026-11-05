@@ -53,8 +53,10 @@ CREATE TABLE IF NOT EXISTS public.feeding_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pet_id UUID NOT NULL REFERENCES public.pets(id) ON DELETE CASCADE,
     food_gram INTEGER NOT NULL,
+    source VARCHAR(40),
     timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE public.feeding_logs ADD COLUMN IF NOT EXISTS source VARCHAR(40);
 
 CREATE INDEX IF NOT EXISTS idx_feeding_logs_pet_id ON public.feeding_logs(pet_id);
 CREATE INDEX IF NOT EXISTS idx_feeding_logs_timestamp ON public.feeding_logs(timestamp DESC);
@@ -81,54 +83,24 @@ CREATE TABLE IF NOT EXISTS public.alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON public.alerts(created_at DESC);
 
--- 7. BẢNG TRẠNG THÁI HỆ THỐNG PHẦN CỨNG (SYSTEM_STATUS)
-CREATE TABLE IF NOT EXISTS public.system_status (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    feeder BOOLEAN NOT NULL DEFAULT FALSE,
-    water_pump BOOLEAN NOT NULL DEFAULT FALSE,
-    litter_cleaner BOOLEAN NOT NULL DEFAULT FALSE,
-    esp32 VARCHAR(50) NOT NULL DEFAULT 'ONLINE',
-    raspberry_pi VARCHAR(50) NOT NULL DEFAULT 'ONLINE',
-    food_level_percent INTEGER DEFAULT 80,
-    water_level_percent INTEGER DEFAULT 75,
-    litter_waste_percent INTEGER DEFAULT 20,
-    last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
--- 8. BẢNG ĐIỀU KHIỂN MÁY CHO ĂN IoT (SYSTEM_FOOD)
-CREATE TABLE IF NOT EXISTS public.system_food (
-    id VARCHAR(36) PRIMARY KEY,
-    device_id VARCHAR(50) NOT NULL UNIQUE,
+-- 7. CÀI ĐẶT MÁY CHO ĂN (DEVICE_SETTINGS) - chỉ 1 dòng id = 1
+-- Trạng thái thời gian thực (cân, thùng chứa, mèo...) KHÔNG lưu DB mà giữ trong RAM của backend.
+CREATE TABLE IF NOT EXISTS public.device_settings (
+    id INTEGER PRIMARY KEY,
+    target_gram INTEGER NOT NULL DEFAULT 30,
     auto_mode BOOLEAN NOT NULL DEFAULT FALSE,
-    btn_led BOOLEAN NOT NULL DEFAULT FALSE,
-    led_green BOOLEAN NOT NULL DEFAULT FALSE,
-    led_red BOOLEAN NOT NULL DEFAULT FALSE,
-    machines BOOLEAN NOT NULL DEFAULT FALSE,
-    percel INTEGER NOT NULL DEFAULT 10,
-    calories INTEGER NOT NULL DEFAULT 50,
-    food_level_percent INTEGER NOT NULL DEFAULT 85,
-    scale_weight_gram INTEGER DEFAULT 0,
-    cat_detected BOOLEAN DEFAULT FALSE,
-    schedule_times VARCHAR(255) DEFAULT '07:00, 12:00, 18:00',
-    last_dispensed TIMESTAMPTZ,
+    schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    schedule_times VARCHAR(255) DEFAULT '07:00,12:00,18:00',
+    feeder_pet_id UUID,
+    pump_auto BOOLEAN NOT NULL DEFAULT FALSE,
+    pump_seconds INTEGER NOT NULL DEFAULT 30,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. BẢNG ĐIỀU KHIỂN MÁY BƠM NƯỚC TỰ ĐỘNG IoT (SYSTEM_WATER)
-CREATE TABLE IF NOT EXISTS public.system_water (
-    id VARCHAR(36) PRIMARY KEY,
-    device_id VARCHAR(50) NOT NULL UNIQUE,
-    auto_mode BOOLEAN NOT NULL DEFAULT FALSE,
-    btn_led BOOLEAN NOT NULL DEFAULT FALSE,
-    led_green BOOLEAN NOT NULL DEFAULT FALSE,
-    led_red BOOLEAN NOT NULL DEFAULT FALSE,
-    machines BOOLEAN NOT NULL DEFAULT FALSE,
-    percel INTEGER NOT NULL DEFAULT 50,
-    water_level_percent INTEGER NOT NULL DEFAULT 90,
-    cat_detected BOOLEAN DEFAULT FALSE,
-    last_pumped TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
+-- Gỡ các bảng giả lập của phiên bản cũ (không còn dùng)
+DROP TABLE IF EXISTS public.system_status;
+DROP TABLE IF EXISTS public.system_food;
+DROP TABLE IF EXISTS public.system_water;
 
 -- Tùy chọn: Thiết lập Row Level Security (RLS) cho Supabase API
 -- Lưu ý: Nếu truy cập qua Spring Boot Backend bằng service/postgres role thì RLS được bypass.
@@ -139,13 +111,9 @@ ALTER TABLE public.weight_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.feeding_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.litter_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.alerts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.system_status ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.system_food ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.system_water ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.device_settings ENABLE ROW LEVEL SECURITY;
 
--- Chính sách đọc công khai dữ liệu hệ thống cơ bản cho Client
-CREATE POLICY "Public Read Access Pets" ON public.pets FOR SELECT USING (true);
-CREATE POLICY "Public Read Access SystemStatus" ON public.system_status FOR SELECT USING (true);
-CREATE POLICY "Public Read Access SystemFood" ON public.system_food FOR SELECT USING (true);
-CREATE POLICY "Public Read Access SystemWater" ON public.system_water FOR SELECT USING (true);
-CREATE POLICY "Public Read Access Alerts" ON public.alerts FOR SELECT USING (true);
+-- KHÔNG tạo policy đọc công khai: mọi truy cập đi qua backend Spring Boot (role postgres bỏ qua RLS),
+-- nên bật RLS mà không có policy = chặn hoàn toàn truy cập trực tiếp bằng anon key của Supabase.
+DROP POLICY IF EXISTS "Public Read Access Pets" ON public.pets;
+DROP POLICY IF EXISTS "Public Read Access Alerts" ON public.alerts;

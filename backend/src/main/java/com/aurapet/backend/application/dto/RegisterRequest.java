@@ -1,11 +1,14 @@
 package com.aurapet.backend.application.dto;
 
-import com.aurapet.backend.domain.model.Role;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
+/**
+ * Yêu cầu đăng ký tài khoản. Không nhận trường "role" từ client:
+ * mọi tài khoản tự đăng ký đều là ROLE_USER (chống leo thang quyền admin).
+ */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -13,17 +16,15 @@ import lombok.*;
 @Builder
 public class RegisterRequest {
 
-    @NotBlank(message = "Name is required")
+    @NotBlank(message = "Vui lòng nhập họ tên")
+    @Size(max = 100, message = "Họ tên tối đa 100 ký tự")
     private String name;
 
-    @NotBlank(message = "Email is required")
-    @Email(message = "Invalid email format")
+    @NotBlank(message = "Vui lòng nhập email")
+    @Email(message = "Email không hợp lệ")
     private String email;
 
-    @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
+    @NotBlank(message = "Vui lòng nhập mật khẩu")
+    @Size(min = 6, max = 100, message = "Mật khẩu từ 6 đến 100 ký tự")
     private String password;
-
-    @Builder.Default
-    private Role role = Role.ROLE_USER;
 }

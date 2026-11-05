@@ -7,8 +7,8 @@
 -- User:  user@aurapet.com  / User@123
 INSERT INTO public.users (id, name, email, password, role, created_at, updated_at)
 VALUES 
-    ('11111111-1111-1111-1111-111111111111', 'Alex Johnson (Admin)', 'admin@aurapet.com', '$2a$10$wT2B1tT84oVlYQhH0jG14eFhUfE5qN6V5fM3x4p7z9s8r1y3w2q1a', 'ROLE_ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('22222222-2222-2222-2222-222222222222', 'Sarah Davis', 'user@aurapet.com', '$2a$10$wT2B1tT84oVlYQhH0jG14eFhUfE5qN6V5fM3x4p7z9s8r1y3w2q1a', 'ROLE_USER', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('11111111-1111-1111-1111-111111111111', 'Alex Johnson (Admin)', 'admin@aurapet.com', '$2a$10$lzFQWnzBS3LNQw3zkNSeAumXTs6UpX2uumsdRFN1Gy4At2gnkbuJ2', 'ROLE_ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('22222222-2222-2222-2222-222222222222', 'Sarah Davis', 'user@aurapet.com', '$2a$10$1rpuBlaZp0enl0A1O7U5fufFov4QCFVPlX9w9k1XnMh491vXa0eiK', 'ROLE_USER', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT (email) DO NOTHING;
 
 -- 2. DANH SÁCH THÚ CƯNG (LUNA, MILO, OLIVER)
@@ -42,23 +42,16 @@ VALUES
     ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 50, CURRENT_TIMESTAMP - INTERVAL '10 hours'),
     ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 40, CURRENT_TIMESTAMP - INTERVAL '4 hours');
 
--- 5. TRẠNG THÁI HỆ THỐNG PHẦN CỨNG
-INSERT INTO public.system_status (id, feeder, water_pump, litter_cleaner, esp32, raspberry_pi, food_level_percent, water_level_percent, litter_waste_percent, last_updated)
-VALUES ('00000000-0000-0000-0000-000000000001', false, false, false, 'ONLINE', 'ONLINE', 85, 92, 18, CURRENT_TIMESTAMP)
-ON CONFLICT (id) DO UPDATE SET last_updated = CURRENT_TIMESTAMP;
 
--- 6. THIẾT BỊ IoT CHO ĂN (SYSTEM_FOOD)
-INSERT INTO public.system_food (id, device_id, auto_mode, btn_led, led_green, led_red, machines, percel, calories, food_level_percent, scale_weight_gram, cat_detected, schedule_times, last_dispensed, updated_at)
-VALUES ('system_food_default', 'AuraFeeder_ESP32_01', false, false, false, false, false, 10, 50, 85, 0, false, '07:00, 12:00, 18:00', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-ON CONFLICT (id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP;
 
--- 7. THIẾT BỊ IoT BƠM NƯỚC (SYSTEM_WATER)
-INSERT INTO public.system_water (id, device_id, auto_mode, btn_led, led_green, led_red, machines, percel, water_level_percent, cat_detected, last_pumped, updated_at)
-VALUES ('system_water_default', 'AuraWater_ESP32_01', false, false, false, false, false, 50, 90, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-ON CONFLICT (id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP;
 
 -- 8. CẢNH BÁO MẪU
 INSERT INTO public.alerts (id, type, level, message, created_at)
 VALUES
     (gen_random_uuid(), 'FOOD_LOW', 'INFO', 'Lượng hạt trong khay dự trữ còn 85%, đủ dùng cho 5 ngày tới.', CURRENT_TIMESTAMP),
     (gen_random_uuid(), 'WATER_STATUS', 'INFO', 'Hệ thống lọc tuần hoàn nước hoạt động ổn định.', CURRENT_TIMESTAMP);
+
+-- Cài đặt máy cho ăn mặc định
+INSERT INTO public.device_settings (id, target_gram, auto_mode, schedule_enabled, schedule_times, pump_auto, pump_seconds)
+VALUES (1, 30, FALSE, FALSE, '07:00,12:00,18:00', FALSE, 30)
+ON CONFLICT (id) DO NOTHING;

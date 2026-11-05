@@ -1,114 +1,71 @@
-# AuraPet — Production-Ready AIoT Smart Pet Care Ecosystem
+# AuraPet — Hệ thống chăm sóc mèo thông minh
 
-[![Spring Boot 3.2.x](https://img.shields.io/badge/Spring%20Boot-3.2.3-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Java 17](https://img.shields.io/badge/Java-17%20LTS-orange.svg)](https://openjdk.org/)
-[![Flutter 3.47](https://img.shields.io/badge/Flutter-3.47.2-blue.svg)](https://flutter.dev/)
-[![OpenAPI 3.0](https://img.shields.io/badge/OpenAPI-3.0.3-green.svg)](https://swagger.io/)
-[![Architecture](https://img.shields.io/badge/Architecture-Clean%20DDD-purple.svg)](#)
-
-AuraPet is an intelligent, fullstack cat care platform combining IoT telemetry, Edge AI diagnostics, and a mobile application designed with an Apple-inspired glassmorphic interface.
-
----
-
-## 🐾 Core Capabilities
-
-1. **Smart Pet Management**:
-   - Comprehensive pet identification, multi-criteria filtering (breed, gender, owner), biometric records, and photo management.
-   - Seeded companion profiles ("Luna", "Milo", "Oliver") ready out-of-the-box.
-2. **AI-Driven Health Analytics**:
-   - Edge AI scoring algorithm analyzing dietary intake patterns, stool quality, and weight trend stability.
-   - Interactive FL Chart visualizations for weight trajectories and daily food intake.
-3. **Automated Feeding & Litter Box Control**:
-   - Remote servo-driven kibble portion dispensing (10g - 100g).
-   - Real-time monitoring of food hopper capacity, circulating water fountain pump, and auto litter box waste drawer.
-4. **IoT & Edge Nodes Telemetry**:
-   - Hardware status tracking for ESP32 microcontrollers and Raspberry Pi Vision nodes.
-   - Live event alerts with severity levels (`INFO`, `WARNING`, `CRITICAL`).
-
----
-
-## 📂 Repository Structure
+Máy cho ăn ESP32 + backend Spring Boot + web dashboard + app Flutter. Mọi nút bấm trên **web** hay **app** đều điều khiển **phần cứng thật** qua MQTT.
 
 ```
-d:\chamsocmeo/
-├── .github/workflows/             # GitHub Actions CI/CD (Backend CI, Pages, Docker GHCR, APK)
-├── supabase/                      # Supabase PostgreSQL Cloud (schema.sql, seed.sql, docs)
-├── contracts/
-│   └── openapi.yaml               # Frozen OpenAPI 3.0 contract specification
-├── backend/                       # Spring Boot 3.x Clean Architecture DDD
-│   ├── src/main/java/com/aurapet/backend/
-│   │   ├── domain/                # Entities, Value Objects, Repositories
-│   │   ├── application/           # DTOs, Mappers, Use Cases, ApiResponse<T>
-│   │   ├── infrastructure/        # JPA, PostgreSQL/MariaDB, JWT Security, Seeder
-│   │   └── interfaces/web/        # RestControllers, GlobalExceptionHandler, Swagger
-│   └── src/test/java/             # 16 Unit & MockMvc Integration Tests
-├── mobile/                        # Flutter + Material 3 Client
-│   ├── lib/
-│   │   ├── core/                  # Theme (Light/Dark), GlassCard, AnimatedSwitch, DioClient
-│   │   ├── data/                  # Strongly typed OpenAPI models & Repositories
-│   │   └── presentation/          # Riverpod 3 State, Login, Dashboard, Pets, Detail, Devices
-│   └── test/                      # 11 Flutter Widget & Model Tests
-├── render.yaml                    # 1-Click Cloud Deployment Blueprint (Render.com)
-├── setup_git_and_push.bat         # Script tự động đẩy code lên GitHub an toàn
-└── docs/                          # Architectural and Deployment Documentation
-    ├── DEPLOY_GITHUB_AND_SUPABASE.md  # Hướng dẫn chi tiết deploy GitHub & Supabase
-    ├── ARCHITECTURE.md
-    ├── API_SPECIFICATION.md
-    └── DEPLOYMENT.md
+ Web dashboard ─┐                         ┌─> ESP32 máy cho ăn (cân HX711, động cơ bước,
+ App Flutter  ──┼─ REST + JWT ─> Backend ─┤      siêu âm, cảm biến mèo, bơm nước tuỳ chọn)
+                │   (Spring Boot)  │  MQTT │
+                │                  │       └─< Raspberry Pi: camera phát hiện mèo
+                └───────────── MariaDB / Supabase PostgreSQL
 ```
 
----
+- Trình duyệt và app **không** kết nối broker trực tiếp → mật khẩu broker chỉ nằm trên server.
+- Topic MQTT có tiền tố bí mật (`MQTT_TOPIC_PREFIX`) để người lạ không đoán được.
+- Nhật ký cho ăn chỉ được ghi khi ESP32 báo số gram **đo thật** bằng cân.
 
-## ☁️ Cloud Deployment (Supabase & GitHub)
+## Chức năng
 
-Hệ thống hỗ trợ 100% triển khai điện toán đám mây:
-1. **Cơ sở dữ liệu Supabase (PostgreSQL Cloud)**:
-   - DDL Schema đầy đủ 9 bảng: [`supabase/schema.sql`](file:///d:/chamsocmeo/supabase/schema.sql)
-   - Dữ liệu mẫu chuẩn: [`supabase/seed.sql`](file:///d:/chamsocmeo/supabase/seed.sql)
-   - Profile chuyên dụng: `--spring.profiles.active=supabase`
-2. **GitHub Actions & Pages**:
-   - Tự động test & build JAR trên đám mây.
-   - Xuất bản Web Dashboard trực tiếp lên **GitHub Pages**.
-   - Tự động đóng gói Docker Image lên **GitHub Container Registry (GHCR)**.
-3. 👉 **Xem hướng dẫn chi tiết từng bước tại:** [`docs/DEPLOY_GITHUB_AND_SUPABASE.md`](file:///d:/chamsocmeo/docs/DEPLOY_GITHUB_AND_SUPABASE.md)
+| Màn hình | Làm được gì |
+|---|---|
+| Điều khiển | Cho ăn ngay theo khẩu phần, dừng khẩn cấp, xem khay (gram) và thùng chứa (%), trừ bì cân, tự cho ăn khi mèo đến (chỉ khi khay < 10 g), lịch hẹn giờ, bơm nước |
+| Thú cưng | Thêm/sửa/xoá, điểm sức khoẻ, lượng ăn 7 ngày, biểu đồ cân nặng, gán bé cho máy cho ăn |
+| Lịch sử | Lượng ăn 7 ngày, danh sách các lần cho ăn và nguồn lệnh |
+| Bác sĩ AI | Hỏi đáp dựa trên dữ liệu thật của bé (Gemini, key giữ trên server) |
+| Tài khoản | Đổi tên, đổi mật khẩu, chọn bé của máy cho ăn |
 
----
+## Chạy nhanh trên máy tính (Windows)
 
-## 🚀 Quick Start
+1. Sao chép `.env.example` → `.env`, điền `AURAPET_JWT_SECRET`, thông tin DB và `MQTT_*`.
+2. Sao chép `firmware/esp32_aurapet/secrets.example.h` → `secrets.h`, điền Wi-Fi và **cùng** `TOPIC_PREFIX` với `MQTT_TOPIC_PREFIX`. Nạp firmware cho ESP32 (xem [docs/HUONG_DAN_PHAN_CUNG.md](docs/HUONG_DAN_PHAN_CUNG.md)).
+3. Chạy `start_aurapet.bat` (tự build lại khi mã nguồn thay đổi) → mở `http://localhost:8080`.
+4. App: `cd mobile && flutter pub get && flutter run`. Trên màn hình đăng nhập nhập địa chỉ máy chủ (hoặc bấm nút tìm trong Wi-Fi).
 
-### 1. Launch Spring Boot Backend
-```powershell
-java -jar d:\chamsocmeo\backend\target\aurapet-backend-1.0.0-SNAPSHOT.jar
+Tài khoản mẫu: `admin@aurapet.com / Admin@123`, `user@aurapet.com / User@123`.
+
+Triển khai cloud (Supabase, Render, Docker, GitHub Pages): [docs/HUONG_DAN_TRIEN_KHAI.md](docs/HUONG_DAN_TRIEN_KHAI.md).
+
+## Cấu trúc
+
 ```
-- Interactive Swagger UI: `http://localhost:8080/swagger-ui.html`
-- **Database (MariaDB & HeidiSQL)**:
-  - Host: `127.0.0.1` | Port: `3306` | User: `root` | Password: `1234`
-  - Database: `aurapetdb`
-  - Mở HeidiSQL và chọn session sẵn có **`AuraPet DB`** để quản lý trực tiếp dữ liệu.
-
-### 2. Launch Flutter Mobile App
-```powershell
-cd d:\chamsocmeo\mobile
-flutter run -d chrome
+backend/   Spring Boot 3 (Java 17): domain, application (service), infrastructure (MQTT, JWT), interfaces (REST)
+  src/main/resources/static/   Web dashboard (index.html, app.css, app.js — không cần build)
+mobile/    Flutter: lib/core (API, theme), lib/data (model), lib/state (Riverpod), lib/ui (màn hình)
+firmware/  esp32_aurapet (Arduino) và raspberry_pi (camera)
+supabase/  schema.sql, seed.sql
+docs/      Kiến trúc, phần cứng, triển khai, thiết kế mục 3.5
 ```
 
-### 3. Demo Credentials
-- **Admin**: `admin@aurapet.com` / `Admin@123`
-- **User**: `user@aurapet.com` / `User@123`
-*(Quick demo login buttons are also available directly on the mobile login screen for instant one-tap access).*
+## API chính
 
----
+Tài liệu đầy đủ tự sinh tại `/swagger-ui.html`.
 
-## 🧪 Automated Testing
+| Phương thức | Đường dẫn | Mô tả |
+|---|---|---|
+| GET | `/api/v1/device/state` | Trạng thái máy (gọi 2 giây/lần) |
+| POST | `/api/v1/device/feed` | `{gram, source}` cho ăn ngay |
+| POST | `/api/v1/device/stop` · `/tare` | Dừng động cơ · trừ bì cân |
+| POST | `/api/v1/device/pump` | `{on}` bật/tắt bơm |
+| PUT | `/api/v1/device/settings` | Khẩu phần, tự động, lịch hẹn giờ, bé của máy, bơm tự động |
+| GET | `/api/v1/device/feedings` | Lịch sử cho ăn |
 
-- **Backend Test Suite (JUnit 5, Mockito, Spring Boot Test)**:
-  ```powershell
-  & 'C:\Users\Admin\maven\apache-maven-3.9.9\bin\mvn.cmd' test -f d:\chamsocmeo\backend\pom.xml
-  ```
-  *(16 tests passing, 0 failures)*
+Máy offline → HTTP 409 kèm thông báo tiếng Việt để giao diện hiển thị.
 
-- **Frontend Test Suite (Flutter Widget & Model Tests)**:
-  ```powershell
-  cd d:\chamsocmeo\mobile; flutter test
-  ```
-  *(11 tests passing, 0 failures)*
+## Kiểm thử
+
+```
+mvn -f backend/pom.xml test     # backend: JUnit + MockMvc (gồm test phân quyền và điều khiển thiết bị)
+cd mobile && flutter test       # app: model + màn hình đăng nhập
+```
+
+Sau khi nâng cấp từ bản cũ, chạy `cleanup_redundant.bat` một lần để xoá file thừa.

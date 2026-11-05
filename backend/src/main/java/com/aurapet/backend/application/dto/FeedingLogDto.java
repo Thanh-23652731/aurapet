@@ -15,5 +15,6 @@ public class FeedingLogDto {
     private UUID petId;
     private String petName;
     private Integer foodGram;
+    private String source;
     private Instant timestamp;
 }

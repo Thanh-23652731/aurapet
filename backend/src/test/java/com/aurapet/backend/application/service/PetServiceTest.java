@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -29,95 +30,81 @@ class PetServiceTest {
     @Mock
     private PetRepository petRepository;
 
-    @Mock
-    private com.aurapet.backend.domain.repository.UserRepository userRepository;
-
     @InjectMocks
     private PetService petService;
 
     private Pet samplePet;
     private UUID petId;
-    private UUID ownerId;
+    private Actor owner;
 
     @BeforeEach
     void setUp() {
         petId = UUID.randomUUID();
-        ownerId = UUID.randomUUID();
+        owner = new Actor(UUID.randomUUID(), false);
         samplePet = Pet.builder()
-                .id(petId)
-                .ownerId(ownerId)
-                .name("Luna")
-                .breed("British Shorthair")
-                .age(2)
-                .gender(Gender.FEMALE)
-                .neutered(true)
-                .weight(4.25)
-                .imageUrl("https://example.com/luna.jpg")
+                .id(petId).ownerId(owner.id()).name("Luna").breed("Anh lông ngắn")
+                .age(2).gender(Gender.FEMALE).neutered(true).weight(4.25)
                 .build();
     }
 
     @Test
-    @DisplayName("Should return PetDto when pet exists")
-    void testGetPetByIdSuccess() {
+    @DisplayName("Chủ sở hữu xem được thú cưng")
+    void ownerCanRead() {
         when(petRepository.findById(petId)).thenReturn(Optional.of(samplePet));
-
-        PetDto result = petService.getPetById(petId);
-
-        assertThat(result).isNotNull();
-        assertThat(result.getName()).isEqualTo("Luna");
-        assertThat(result.getBreed()).isEqualTo("British Shorthair");
+        PetDto dto = petService.getPet(petId, owner);
+        assertThat(dto.getName()).isEqualTo("Luna");
     }
 
     @Test
-    @DisplayName("Should throw ResourceNotFoundException when pet does not exist")
-    void testGetPetByIdNotFound() {
-        when(petRepository.findById(any())).thenReturn(Optional.empty());
+    @DisplayName("Người khác bị từ chối (403)")
+    void strangerIsDenied() {
+        when(petRepository.findById(petId)).thenReturn(Optional.of(samplePet));
+        Actor stranger = new Actor(UUID.randomUUID(), false);
+        assertThatThrownBy(() -> petService.getPet(petId, stranger)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> petService.deletePet(petId, stranger)).isInstanceOf(AccessDeniedException.class);
+        verify(petRepository, never()).delete(any(Pet.class));
+    }
 
-        assertThatThrownBy(() -> petService.getPetById(UUID.randomUUID()))
+    @Test
+    @DisplayName("Admin xem được mọi thú cưng")
+    void adminCanRead() {
+        when(petRepository.findById(petId)).thenReturn(Optional.of(samplePet));
+        assertThat(petService.getPet(petId, new Actor(UUID.randomUUID(), true)).getName()).isEqualTo("Luna");
+    }
+
+    @Test
+    @DisplayName("Không tồn tại -> ResourceNotFoundException")
+    void notFound() {
+        when(petRepository.findById(any())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> petService.getPet(UUID.randomUUID(), owner))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Pet not found");
     }
 
     @Test
-    @DisplayName("Should create pet successfully")
-    void testCreatePet() {
-        CreatePetRequest request = CreatePetRequest.builder()
-                .name("Milo")
-                .breed("Scottish Fold")
-                .age(1)
-                .gender(Gender.MALE)
-                .neutered(true)
-                .weight(3.8)
-                .build();
-
-        when(petRepository.save(any(Pet.class))).thenAnswer(invocation -> {
-            Pet p = invocation.getArgument(0);
+    @DisplayName("Người dùng thường không thể tạo mèo đứng tên người khác")
+    void createAlwaysOwnedByActor() {
+        when(petRepository.save(any(Pet.class))).thenAnswer(inv -> {
+            Pet p = inv.getArgument(0);
             p.setId(UUID.randomUUID());
             return p;
         });
-
-        PetDto created = petService.createPet(request, ownerId);
-
-        assertThat(created).isNotNull();
-        assertThat(created.getName()).isEqualTo("Milo");
-        assertThat(created.getBreed()).isEqualTo("Scottish Fold");
-        verify(petRepository, times(1)).save(any(Pet.class));
+        CreatePetRequest request = CreatePetRequest.builder()
+                .ownerId(UUID.randomUUID()) // cố gán cho người khác
+                .name("Milo").breed("Scottish Fold").age(1).gender(Gender.MALE).neutered(true).weight(3.8)
+                .build();
+        PetDto created = petService.createPet(request, owner);
+        assertThat(created.getOwnerId()).isEqualTo(owner.id());
     }
 
     @Test
-    @DisplayName("Should update pet fields")
-    void testUpdatePet() {
-        UpdatePetRequest updateRequest = UpdatePetRequest.builder()
-                .name("Luna Updated")
-                .weight(4.5)
-                .build();
-
+    @DisplayName("Cập nhật từng trường")
+    void updatePet() {
         when(petRepository.findById(petId)).thenReturn(Optional.of(samplePet));
-        when(petRepository.save(any(Pet.class))).thenReturn(samplePet);
-
-        PetDto updated = petService.updatePet(petId, updateRequest);
-
-        assertThat(updated.getName()).isEqualTo("Luna Updated");
+        when(petRepository.save(any(Pet.class))).thenAnswer(inv -> inv.getArgument(0));
+        PetDto updated = petService.updatePet(petId, UpdatePetRequest.builder().name("Luna 2").weight(4.5).build(), owner);
+        assertThat(updated.getName()).isEqualTo("Luna 2");
         assertThat(updated.getWeight()).isEqualTo(4.5);
+        assertThat(updated.getBreed()).isEqualTo("Anh lông ngắn");
     }
 }

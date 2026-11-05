@@ -80,10 +80,14 @@ if not exist "%~dp0.git" (
 echo.
 echo [2/3] Kiem tra commit du an...
 git add .
+:: Chặn tuyệt đối việc commit file bí mật (phòng khi .gitignore bị sửa)
+git rm --cached -q --ignore-unmatch .env .env.production firmware/esp32_aurapet/secrets.h >nul 2>nul
 git status --porcelain | findstr /R "." >nul
 if %ERRORLEVEL% EQU 0 (
     echo   - Dang tao commit cac thay doi moi nhat...
-    git commit -m "feat: complete AuraPet fullstack AIoT ecosystem with Supabase and GitHub CI/CD"
+    set "MSG=Cap nhat AuraPet"
+    set /p MSG=Noi dung commit ^(Enter = mac dinh^): 
+    call :MAKE_COMMIT
 ) else (
     echo   - Cac file da duoc commit day du san sang!
 )
@@ -131,7 +135,7 @@ echo ===================================================================
 echo [THANH CONG] Toan bo du an da duoc day len GitHub!
 echo   - Repo:    https://github.com/Thanh-23652731/aurapet
 echo   - Web App: https://Thanh-23652731.github.io/aurapet/
-echo   - Huong dan tiep theo tai: docs/DEPLOY_GITHUB_AND_SUPABASE.md
+echo   - Huong dan tiep theo tai: docs/HUONG_DAN_TRIEN_KHAI.md
 echo ===================================================================
 goto :END
 
@@ -143,6 +147,11 @@ echo   1. Hay dam bao repository https://github.com/Thanh-23652731/aurapet da du
 echo   2. Chon 'Sign in with your browser' tren cua so Git Credential Manager vua hien len.
 echo   3. Neu dung Personal Access Token: nhap Token lam Password.
 echo ===================================================================
+goto :END
+
+:MAKE_COMMIT
+git commit -m "%MSG%"
+goto :eof
 
 :END
 echo.

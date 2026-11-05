@@ -1,0 +1,6 @@
+# Camera phát hiện mèo (cat_detection_gateway.py)
+ultralytics>=8.1
+paho-mqtt>=1.6
+# Raspberry Pi không màn hình: dùng bản headless.
+# Laptop muốn xem cửa sổ (SHOW_PREVIEW=1): thay dòng dưới bằng opencv-python
+opencv-python-headless

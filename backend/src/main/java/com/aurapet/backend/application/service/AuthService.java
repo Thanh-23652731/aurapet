@@ -10,11 +10,11 @@ import com.aurapet.backend.interfaces.web.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -27,50 +27,59 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new BadRequestException("Email is already registered: " + request.getEmail());
+        String email = normalizeEmail(request.getEmail());
+        if (userRepository.existsByEmail(email)) {
+            throw new BadRequestException("Email đã được đăng ký: " + email);
         }
-
-        User user = User.builder()
-                .name(request.getName())
-                .email(request.getEmail().toLowerCase().trim())
+        User saved = userRepository.save(User.builder()
+                .name(request.getName().trim())
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
-                .role(request.getRole() != null ? request.getRole() : Role.ROLE_USER)
-                .build();
-
-        User saved = userRepository.save(user);
-        String token = tokenProvider.generateToken(saved.getId(), saved.getEmail(), saved.getRole().name());
-
-        return AuthResponse.builder()
-                .token(token)
-                .tokenType("Bearer")
-                .user(mapToDto(saved))
-                .build();
+                .role(Role.ROLE_USER) // không bao giờ lấy role từ client
+                .build());
+        return toAuthResponse(saved);
     }
 
     public AuthResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail().toLowerCase().trim(), request.getPassword())
-        );
-
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-
-        User user = userRepository.findByEmail(request.getEmail().toLowerCase().trim())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + request.getEmail()));
-
-        String token = tokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole().name());
-
-        return AuthResponse.builder()
-                .token(token)
-                .tokenType("Bearer")
-                .user(mapToDto(user))
-                .build();
+        String email = normalizeEmail(request.getEmail());
+        authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, request.getPassword()));
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản: " + email));
+        return toAuthResponse(user);
     }
 
     public UserDto getCurrentUser(String email) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + email));
-        return mapToDto(user);
+        return mapToDto(findUser(email));
+    }
+
+    @Transactional
+    public UserDto updateProfile(String email, UpdateProfileRequest request) {
+        User user = findUser(email);
+        if (request.getName() != null && !request.getName().isBlank()) {
+            user.setName(request.getName().trim());
+        }
+        if (request.getNewPassword() != null && !request.getNewPassword().isBlank()) {
+            if (request.getCurrentPassword() == null
+                    || !passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+                throw new BadRequestException("Mật khẩu hiện tại không đúng");
+            }
+            user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        }
+        return mapToDto(userRepository.save(user));
+    }
+
+    private User findUser(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản: " + email));
+    }
+
+    private AuthResponse toAuthResponse(User user) {
+        String token = tokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole().name());
+        return AuthResponse.builder().token(token).tokenType("Bearer").user(mapToDto(user)).build();
+    }
+
+    private static String normalizeEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
     }
 
     public UserDto mapToDto(User user) {

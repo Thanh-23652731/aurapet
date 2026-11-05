@@ -25,12 +25,19 @@ public class UdpDiscoveryServer {
     @Value("${server.port:8080}")
     private int serverPort;
 
+    @Value("${aurapet.discovery.enabled:true}")
+    private boolean enabled;
+
     private DatagramSocket socket;
     private volatile boolean running = false;
     private Thread listenerThread;
 
     @PostConstruct
     public void start() {
+        if (!enabled) {
+            log.info("UDP Auto-Discovery is disabled (aurapet.discovery.enabled=false)");
+            return;
+        }
         running = true;
         listenerThread = new Thread(this::listen, "aurapet-udp-discovery");
         listenerThread.setDaemon(true);
@@ -51,6 +58,9 @@ public class UdpDiscoveryServer {
                 String message = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8).trim();
                 if (message.contains(REQUEST_KEYWORD)) {
                     String localIp = getLocalLanIp();
+                    if (localIp == null) {
+                        continue; // không xác định được IP LAN -> không trả lời sai địa chỉ
+                    }
                     String responseMsg = RESPONSE_PREFIX + "http://" + localIp + ":" + serverPort;
                     byte[] responseBytes = responseMsg.getBytes(StandardCharsets.UTF_8);
 
@@ -100,7 +110,7 @@ public class UdpDiscoveryServer {
             if (candidateIp != null) return candidateIp;
         } catch (Exception ignored) {
         }
-        return "10.10.59.64";
+        return null;
     }
 
     @PreDestroy

@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/firebase/firebase_service.dart';
-import 'core/theme/app_theme.dart';
-import 'presentation/auth/login_screen.dart';
-import 'presentation/main_layout.dart';
-import 'presentation/state/auth_provider.dart';
 
-void main() async {
+import 'core/api.dart';
+import 'core/theme.dart';
+import 'state/providers.dart';
+import 'ui/login_screen.dart';
+import 'ui/shell.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await FirebaseService().initialize();
-  runApp(const ProviderScope(child: AuraPetApp()));
+  final client = ApiClient();
+  await client.init(); // đọc địa chỉ máy chủ + token đã lưu
+  runApp(ProviderScope(
+    overrides: [apiClientProvider.overrideWithValue(client)],
+    child: const AuraPetApp(),
+  ));
 }
 
 class AuraPetApp extends ConsumerWidget {
@@ -17,16 +22,18 @@ class AuraPetApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeModeProvider);
-    final authState = ref.watch(authProvider);
-
+    final session = ref.watch(sessionProvider);
     return MaterialApp(
-      title: 'AuraPet AIoT Smart Pet Care',
+      title: 'AuraPet',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: themeMode,
-      home: authState.isAuthenticated ? const MainLayout() : const LoginScreen(),
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.dark),
+      themeMode: ref.watch(themeModeProvider),
+      home: session.restoring
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : session.loggedIn
+              ? const Shell()
+              : const LoginScreen(),
     );
   }
 }

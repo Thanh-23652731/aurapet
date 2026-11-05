@@ -1,7 +1,4 @@
-# ===================================================================
-# Render Blueprint for AuraPet Backend (Docker + Supabase PostgreSQL)
-# ===================================================================
-
+# Render Blueprint - backend Docker + Supabase PostgreSQL
 services:
   - type: web
     name: aurapet-backend
@@ -10,9 +7,8 @@ services:
     dockerContext: ./backend
     plan: free
     region: singapore
+    healthCheckPath: /actuator/health
     envVars:
-      - key: PORT
-        value: 8080
       - key: SPRING_PROFILES_ACTIVE
         value: supabase
       - key: SUPABASE_DB_URL
@@ -23,7 +19,19 @@ services:
         sync: false
       - key: AURAPET_JWT_SECRET
         generateValue: true
+      - key: MQTT_HOST
+        sync: false
+      - key: MQTT_PORT
+        sync: false
+      - key: MQTT_TLS
+        sync: false
+      - key: MQTT_USERNAME
+        sync: false
+      - key: MQTT_PASSWORD
+        sync: false
+      - key: MQTT_TOPIC_PREFIX
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: CORS_ALLOWED_ORIGINS
-        value: "*"
+      - key: DISCOVERY_ENABLED
+        value: "false"

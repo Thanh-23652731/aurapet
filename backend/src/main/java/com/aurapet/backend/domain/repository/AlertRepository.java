@@ -9,5 +9,6 @@ import java.util.UUID;
 
 @Repository
 public interface AlertRepository extends JpaRepository<Alert, UUID> {
-    List<Alert> findTop10ByOrderByCreatedAtDesc();
+
+    List<Alert> findTop15ByOrderByCreatedAtDesc();
 }

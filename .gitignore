@@ -56,6 +56,7 @@ mobile/ios/.symlinks/
 *.swo
 
 # === Environment, Secrets & Credentials ===
+firmware/esp32_aurapet/secrets.h
 .env
 .env.production
 .env.supabase
@@ -93,3 +94,11 @@ yarn-error.log*
 node_modules/
 dist/
 build/
+firmware/esp32_feeder_emqx/secrets.h
+firmware/machchoan/
+
+# === Python / AI camera ===
+__pycache__/
+*.pyc
+.venv/
+firmware/raspberry_pi/*.pt

@@ -1,17 +1,14 @@
-# aurapet_mobile
+# AuraPet – app Flutter
 
-A new Flutter project.
+Điều khiển máy cho ăn thật qua backend AuraPet (cùng API với web dashboard).
 
-## Getting Started
+```bash
+flutter pub get
+flutter run                     # Android / iOS / Windows / Chrome
+flutter test
+```
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `lib/core` – API client (lưu token + địa chỉ máy chủ), theme, tìm máy chủ qua UDP
+- `lib/data` – model và lời gọi API
+- `lib/state` – Riverpod: phiên đăng nhập, trạng thái máy (2 giây/lần), thống kê, thú cưng
+- `lib/ui` – màn hình: Điều khiển, Thú cưng, Lịch sử, Bác sĩ AI, Tài khoản

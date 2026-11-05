@@ -1,0 +1,111 @@
+@echo off
+chcp 65001 >nul
+title AuraPet - Don dep phan du thua
+cd /d "%~dp0"
+echo ===================================================================
+echo   XOA CAC FILE DU THUA SAU KHI NANG CAP AURAPET 2.0
+echo ===================================================================
+echo.
+echo [1/2] Xoa ma nguon va tai lieu cu da duoc thay the...
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\FeederCommandRequest.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\FeederCommandRequest.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\FoodControlCommand.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\FoodControlCommand.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\LitterCommandRequest.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\LitterCommandRequest.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\SystemFoodDto.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\SystemFoodDto.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\SystemStatusDto.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\SystemStatusDto.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\SystemWaterDto.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\SystemWaterDto.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\WaterCommandRequest.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\WaterCommandRequest.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\dto\WaterControlCommand.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\dto\WaterControlCommand.java"
+if exist "backend\src\main\java\com\aurapet\backend\application\service\SystemDeviceService.java" del /f /q "backend\src\main\java\com\aurapet\backend\application\service\SystemDeviceService.java"
+if exist "backend\src\main\java\com\aurapet\backend\domain\model\SystemFood.java" del /f /q "backend\src\main\java\com\aurapet\backend\domain\model\SystemFood.java"
+if exist "backend\src\main\java\com\aurapet\backend\domain\model\SystemStatus.java" del /f /q "backend\src\main\java\com\aurapet\backend\domain\model\SystemStatus.java"
+if exist "backend\src\main\java\com\aurapet\backend\domain\model\SystemWater.java" del /f /q "backend\src\main\java\com\aurapet\backend\domain\model\SystemWater.java"
+if exist "backend\src\main\java\com\aurapet\backend\domain\repository\SystemFoodRepository.java" del /f /q "backend\src\main\java\com\aurapet\backend\domain\repository\SystemFoodRepository.java"
+if exist "backend\src\main\java\com\aurapet\backend\domain\repository\SystemStatusRepository.java" del /f /q "backend\src\main\java\com\aurapet\backend\domain\repository\SystemStatusRepository.java"
+if exist "backend\src\main\java\com\aurapet\backend\domain\repository\SystemWaterRepository.java" del /f /q "backend\src\main\java\com\aurapet\backend\domain\repository\SystemWaterRepository.java"
+if exist "backend\src\main\java\com\aurapet\backend\infrastructure\firebase\FirebaseAdminService.java" del /f /q "backend\src\main\java\com\aurapet\backend\infrastructure\firebase\FirebaseAdminService.java"
+if exist "backend\src\main\java\com\aurapet\backend\infrastructure\mqtt\EmqxMqttService.java" del /f /q "backend\src\main\java\com\aurapet\backend\infrastructure\mqtt\EmqxMqttService.java"
+if exist "backend\src\main\java\com\aurapet\backend\interfaces\web\controller\SystemDeviceController.java" del /f /q "backend\src\main\java\com\aurapet\backend\interfaces\web\controller\SystemDeviceController.java"
+if exist "backend\src\test\java\com\aurapet\backend\application\service\SystemDeviceServiceTest.java" del /f /q "backend\src\test\java\com\aurapet\backend\application\service\SystemDeviceServiceTest.java"
+if exist "mobile\lib\core\constants\api_endpoints.dart" del /f /q "mobile\lib\core\constants\api_endpoints.dart"
+if exist "mobile\lib\core\constants\app_colors.dart" del /f /q "mobile\lib\core\constants\app_colors.dart"
+if exist "mobile\lib\core\firebase\firebase_service.dart" del /f /q "mobile\lib\core\firebase\firebase_service.dart"
+if exist "mobile\lib\core\localization\app_strings.dart" del /f /q "mobile\lib\core\localization\app_strings.dart"
+if exist "mobile\lib\core\network\api_response.dart" del /f /q "mobile\lib\core\network\api_response.dart"
+if exist "mobile\lib\core\network\dio_client.dart" del /f /q "mobile\lib\core\network\dio_client.dart"
+if exist "mobile\lib\core\network\server_discovery_service.dart" del /f /q "mobile\lib\core\network\server_discovery_service.dart"
+if exist "mobile\lib\core\theme\app_theme.dart" del /f /q "mobile\lib\core\theme\app_theme.dart"
+if exist "mobile\lib\core\widgets\animated_toggle_switch.dart" del /f /q "mobile\lib\core\widgets\animated_toggle_switch.dart"
+if exist "mobile\lib\core\widgets\empty_state.dart" del /f /q "mobile\lib\core\widgets\empty_state.dart"
+if exist "mobile\lib\core\widgets\glass_card.dart" del /f /q "mobile\lib\core\widgets\glass_card.dart"
+if exist "mobile\lib\core\widgets\skeleton_loader.dart" del /f /q "mobile\lib\core\widgets\skeleton_loader.dart"
+if exist "mobile\lib\core\widgets\status_badge.dart" del /f /q "mobile\lib\core\widgets\status_badge.dart"
+if exist "mobile\lib\core\widgets\web_header.dart" del /f /q "mobile\lib\core\widgets\web_header.dart"
+if exist "mobile\lib\data\models\alert.dart" del /f /q "mobile\lib\data\models\alert.dart"
+if exist "mobile\lib\data\models\dashboard_stats.dart" del /f /q "mobile\lib\data\models\dashboard_stats.dart"
+if exist "mobile\lib\data\models\feeding_log.dart" del /f /q "mobile\lib\data\models\feeding_log.dart"
+if exist "mobile\lib\data\models\health_summary.dart" del /f /q "mobile\lib\data\models\health_summary.dart"
+if exist "mobile\lib\data\models\litter_log.dart" del /f /q "mobile\lib\data\models\litter_log.dart"
+if exist "mobile\lib\data\models\pet.dart" del /f /q "mobile\lib\data\models\pet.dart"
+if exist "mobile\lib\data\models\system_status.dart" del /f /q "mobile\lib\data\models\system_status.dart"
+if exist "mobile\lib\data\models\user.dart" del /f /q "mobile\lib\data\models\user.dart"
+if exist "mobile\lib\data\models\weight_record.dart" del /f /q "mobile\lib\data\models\weight_record.dart"
+if exist "mobile\lib\data\repositories\auth_repository.dart" del /f /q "mobile\lib\data\repositories\auth_repository.dart"
+if exist "mobile\lib\data\repositories\dashboard_repository.dart" del /f /q "mobile\lib\data\repositories\dashboard_repository.dart"
+if exist "mobile\lib\data\repositories\health_repository.dart" del /f /q "mobile\lib\data\repositories\health_repository.dart"
+if exist "mobile\lib\data\repositories\pet_repository.dart" del /f /q "mobile\lib\data\repositories\pet_repository.dart"
+if exist "mobile\lib\data\repositories\system_repository.dart" del /f /q "mobile\lib\data\repositories\system_repository.dart"
+if exist "mobile\lib\presentation\ai_chat\ai_doctor_chat_sheet.dart" del /f /q "mobile\lib\presentation\ai_chat\ai_doctor_chat_sheet.dart"
+if exist "mobile\lib\presentation\auth\login_screen.dart" del /f /q "mobile\lib\presentation\auth\login_screen.dart"
+if exist "mobile\lib\presentation\home\mascot_widget.dart" del /f /q "mobile\lib\presentation\home\mascot_widget.dart"
+if exist "mobile\lib\presentation\home\web_home_screen.dart" del /f /q "mobile\lib\presentation\home\web_home_screen.dart"
+if exist "mobile\lib\presentation\main_layout.dart" del /f /q "mobile\lib\presentation\main_layout.dart"
+if exist "mobile\lib\presentation\pet_detail\web_pet_detail_screen.dart" del /f /q "mobile\lib\presentation\pet_detail\web_pet_detail_screen.dart"
+if exist "mobile\lib\presentation\pets\web_pet_list_screen.dart" del /f /q "mobile\lib\presentation\pets\web_pet_list_screen.dart"
+if exist "mobile\lib\presentation\profile\web_profile_screen.dart" del /f /q "mobile\lib\presentation\profile\web_profile_screen.dart"
+if exist "mobile\lib\presentation\state\auth_provider.dart" del /f /q "mobile\lib\presentation\state\auth_provider.dart"
+if exist "mobile\lib\presentation\state\dashboard_provider.dart" del /f /q "mobile\lib\presentation\state\dashboard_provider.dart"
+if exist "mobile\lib\presentation\state\feeding_history_provider.dart" del /f /q "mobile\lib\presentation\state\feeding_history_provider.dart"
+if exist "mobile\lib\presentation\state\locale_provider.dart" del /f /q "mobile\lib\presentation\state\locale_provider.dart"
+if exist "mobile\lib\presentation\state\pet_detail_provider.dart" del /f /q "mobile\lib\presentation\state\pet_detail_provider.dart"
+if exist "mobile\lib\presentation\state\pet_provider.dart" del /f /q "mobile\lib\presentation\state\pet_provider.dart"
+if exist "mobile\lib\presentation\state\system_provider.dart" del /f /q "mobile\lib\presentation\state\system_provider.dart"
+if exist "mobile\lib\presentation\system\web_system_screen.dart" del /f /q "mobile\lib\presentation\system\web_system_screen.dart"
+if exist "docs\API_SPECIFICATION.md" del /f /q "docs\API_SPECIFICATION.md"
+if exist "docs\DEPLOYMENT.md" del /f /q "docs\DEPLOYMENT.md"
+if exist "docs\DEPLOY_GITHUB_AND_SUPABASE.md" del /f /q "docs\DEPLOY_GITHUB_AND_SUPABASE.md"
+if exist "docs\HUONG_DAN_TRIEN_KHAI_CLOUD_VPS.md" del /f /q "docs\HUONG_DAN_TRIEN_KHAI_CLOUD_VPS.md"
+if exist "docs\HUONG_DAN_KET_NOI_PHAN_CUNG.md" del /f /q "docs\HUONG_DAN_KET_NOI_PHAN_CUNG.md"
+if exist "contracts\openapi.yaml" del /f /q "contracts\openapi.yaml"
+if exist "supabase\README.md" del /f /q "supabase\README.md"
+if exist ".env.supabase.example" del /f /q ".env.supabase.example"
+if exist "docker-compose.supabase.yml" del /f /q "docker-compose.supabase.yml"
+if exist "setup_git_and_push.ps1" del /f /q "setup_git_and_push.ps1"
+if exist "start_app_web.bat" del /f /q "start_app_web.bat"
+if exist "mobile\lib\presentation" rmdir /s /q "mobile\lib\presentation"
+if exist "mobile\lib\core\constants" rmdir /s /q "mobile\lib\core\constants"
+if exist "mobile\lib\core\firebase" rmdir /s /q "mobile\lib\core\firebase"
+if exist "mobile\lib\core\localization" rmdir /s /q "mobile\lib\core\localization"
+if exist "mobile\lib\core\network" rmdir /s /q "mobile\lib\core\network"
+if exist "mobile\lib\core\theme" rmdir /s /q "mobile\lib\core\theme"
+if exist "mobile\lib\core\widgets" rmdir /s /q "mobile\lib\core\widgets"
+if exist "mobile\lib\data\models" rmdir /s /q "mobile\lib\data\models"
+if exist "mobile\lib\data\repositories" rmdir /s /q "mobile\lib\data\repositories"
+if exist "backend\src\main\java\com\aurapet\backend\infrastructure\firebase" rmdir /s /q "backend\src\main\java\com\aurapet\backend\infrastructure\firebase"
+if exist "contracts" rmdir /s /q "contracts"
+echo       Xong.
+echo.
+echo [2/2] Xoa file build tam (khoang 500 MB, se tu tao lai khi build):
+echo       backend\target, mobile\build, mobile\.dart_tool, AuraPet.apk
+set /p ANS=Ban co muon xoa khong? [Y/N]: 
+if /i not "%ANS%"=="Y" goto :DONE
+if exist "backend\target" rmdir /s /q "backend\target"
+if exist "mobile\build" rmdir /s /q "mobile\build"
+if exist "mobile\.dart_tool" rmdir /s /q "mobile\.dart_tool"
+if exist "AuraPet.apk" del /f /q "AuraPet.apk"
+echo       Da xoa file build.
+:DONE
+echo.
+echo Hoan tat. Lan chay start_aurapet.bat tiep theo se tu build lai backend.
+echo Voi app Flutter: cd mobile ^&^& flutter pub get
+echo.
+pause

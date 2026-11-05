@@ -14,6 +14,7 @@ public class DashboardStatsDto {
     private Integer todayFoodGram;
     private Integer feedingSessionsCount;
     private Integer litterUsageCount;
+    private List<DailyFoodDto> last7Days;
     private List<AlertDto> latestAlerts;
-    private SystemStatusDto deviceStatus;
+    private DeviceStateDto device;
 }

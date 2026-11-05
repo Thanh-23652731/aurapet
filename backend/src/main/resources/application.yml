@@ -4,31 +4,56 @@ server:
 spring:
   application:
     name: aurapet-backend
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
-    url: ${SUPABASE_DB_URL:${SPRING_DATASOURCE_URL:jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:aurapetdb}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Ho_Chi_Minh}}
+    url: ${SUPABASE_DB_URL:${SPRING_DATASOURCE_URL:jdbc:mariadb://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:aurapetdb}?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Ho_Chi_Minh}}
     username: ${SUPABASE_DB_USER:${SPRING_DATASOURCE_USERNAME:${DB_USER:root}}}
     password: ${SUPABASE_DB_PASSWORD:${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}}
   jpa:
     hibernate:
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    open-in-view: false
     show-sql: false
-    properties:
-      hibernate:
-        format_sql: true
+    # Không ép dialect: Hibernate tự nhận MariaDB / PostgreSQL theo URL
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
 
 aurapet:
   jwt:
+    # BẮT BUỘC đặt trong .env (>= 32 ký tự). Không có giá trị mặc định để tránh lộ khoá.
     secret: ${AURAPET_JWT_SECRET:}
-    expiration-ms: 86400000 # 24 hours
+    expiration-ms: ${AURAPET_JWT_EXPIRATION_MS:604800000} # 7 ngày (app lưu đăng nhập)
+  demo-data: ${AURAPET_DEMO_DATA:true}
   gemini:
     api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-3.5-flash}
+    fallback-model: ${GEMINI_FALLBACK_MODEL:gemini-flash-lite-latest}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
-  firebase:
-    enabled: false
-    service-account-path: classpath:firebase-service-account.json
+  camera:
+    # Khoá bí mật để Raspberry Pi gửi ảnh lên (header X-Camera-Key). Để trống = không nhận hình.
+    key: ${CAMERA_KEY:}
+  discovery:
+    enabled: ${DISCOVERY_ENABLED:true}
+  mqtt:
+    enabled: ${MQTT_ENABLED:true}
+    host: ${MQTT_HOST:broker.emqx.io}
+    port: ${MQTT_PORT:1883}
+    tls: ${MQTT_TLS:false}
+    username: ${MQTT_USERNAME:}
+    password: ${MQTT_PASSWORD:}
+    # Chuỗi bí mật, PHẢI trùng TOPIC_PREFIX trong firmware/esp32_aurapet/secrets.h
+    topic-prefix: ${MQTT_TOPIC_PREFIX:}
+    client-id: ${MQTT_CLIENT_ID:AuraPet_Server}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
 
 springdoc:
   api-docs:
@@ -40,4 +65,4 @@ springdoc:
 logging:
   level:
     root: INFO
-    com.aurapet.backend: DEBUG
+    com.aurapet.backend: INFO
