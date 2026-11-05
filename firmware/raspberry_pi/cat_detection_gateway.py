@@ -22,7 +22,10 @@ Cấu hình bằng biến môi trường:
     CAMERA_KEY         PHẢI giống CAMERA_KEY trong .env backend (bỏ trống = không gửi hình)
     CAMERA_INDEX       mặc định 0 (Pi). Laptop có webcam USB cắm ngoài thường là 1 hoặc 2
     CAMERA_WIDTH/HEIGHT  mặc định 640x480
-    STREAM_FPS (mặc định 8), STREAM_WIDTH (mặc định 640), JPEG_QUALITY (mặc định 70)
+    CAMERA_FPS         số khung/giây xin từ camera, mặc định 60 (camera không hỗ trợ thì tự lấy mức cao nhất của nó)
+    STREAM_FPS         số khung/giây gửi lên web, mặc định 60
+    STREAM_WIDTH (mặc định 640), JPEG_QUALITY (mặc định 70; giảm xuống 50-60 nếu Wi-Fi yếu)
+    TORCH_THREADS      số nhân CPU cho YOLO, mặc định một nửa số nhân (để phần còn lại lo hình trực tiếp)
 
   Nhận diện (YOLOv8):
     YOLO_MODEL         đường dẫn model, mặc định yolov8n.pt cạnh script
@@ -53,9 +56,9 @@ import ssl
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
+import http.client
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import cv2
 import paho.mqtt.client as mqtt
@@ -91,10 +94,11 @@ TOPIC_PREFIX = os.getenv("MQTT_TOPIC_PREFIX", "").strip().rstrip("/")
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
 CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
+CAMERA_FPS = max(1.0, _env_float("CAMERA_FPS", 60))
 
 AURAPET_SERVER = os.getenv("AURAPET_SERVER", "").strip().rstrip("/")
 CAMERA_KEY = os.getenv("CAMERA_KEY", "").strip()
-STREAM_FPS = max(1.0, _env_float("STREAM_FPS", 8))
+STREAM_FPS = max(1.0, _env_float("STREAM_FPS", 60))
 STREAM_WIDTH = int(os.getenv("STREAM_WIDTH", "640"))
 JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "70"))
 
@@ -106,6 +110,7 @@ CAT_CONFIDENCE = _env_float("CAT_CONFIDENCE", 0.6)
 STABLE_FRAMES = max(1, int(os.getenv("CAT_STABLE_FRAMES", "3")))
 CAT_ROI = _parse_roi(os.getenv("CAT_ROI", ""))
 CAT_NEAR_AREA = max(0.0, _env_float("CAT_NEAR_AREA", 0))
+TORCH_THREADS = max(1, int(os.getenv("TORCH_THREADS", str(max(1, (os.cpu_count() or 2) // 2)))))
 
 SCAN_INTERVAL = max(0.1, _env_float("SCAN_INTERVAL", 0.5))
 REPORT_INTERVAL = _env_float("REPORT_INTERVAL", 10)
@@ -129,7 +134,12 @@ class CatDetector:
             from ultralytics import YOLO
         except ImportError:
             sys.exit("Chưa cài ultralytics: pip install -r firmware/raspberry_pi/requirements.txt")
-        print(f"[AI] Đang tải mô hình {YOLO_MODEL} ...")
+        try:
+            import torch
+            torch.set_num_threads(TORCH_THREADS)  # chừa nhân CPU cho luồng hình trực tiếp
+        except Exception:
+            pass
+        print(f"[AI] Đang tải mô hình {YOLO_MODEL} (dùng {TORCH_THREADS} nhân CPU) ...")
         self.model = YOLO(YOLO_MODEL)
 
     def detect(self, frame):
@@ -235,8 +245,12 @@ class FrameUploader(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.q = queue.Queue(maxsize=1)
-        self.url = AURAPET_SERVER + "/api/v1/camera/frame"
+        u = urlsplit(AURAPET_SERVER + "/api/v1/camera/frame")
+        self.https = u.scheme == "https"
+        self.host, self.port, self.path = u.hostname, u.port, u.path
+        self.conn = None
         self.ok = None
+        self.sent = 0  # số khung đã gửi thành công (để in tốc độ thực tế)
 
     def offer(self, jpeg, cat, conf):
         try:
@@ -245,32 +259,59 @@ class FrameUploader(threading.Thread):
             pass
         self.q.put_nowait((jpeg, cat, conf))
 
+    def _close(self):
+        if self.conn is not None:
+            self.conn.close()
+            self.conn = None
+
+    def _post(self, jpeg, headers):
+        """Giữ 1 kết nối mở cho nhiều khung (keep-alive): nhanh hơn nhiều so với mở kết nối mới mỗi khung."""
+        for attempt in (1, 2):
+            reused = self.conn is not None
+            if self.conn is None:
+                cls = http.client.HTTPSConnection if self.https else http.client.HTTPConnection
+                self.conn = cls(self.host, self.port, timeout=5)
+            try:
+                self.conn.request("POST", self.path, body=jpeg, headers=headers)
+                res = self.conn.getresponse()
+                res.read()
+            except Exception:
+                self._close()
+                if reused and attempt == 1:
+                    continue  # máy chủ đã đóng kết nối cũ, mở kết nối mới gửi lại
+                raise
+            if res.will_close:
+                self._close()
+            return res.status
+
     def run(self):
         while True:
             jpeg, cat, conf = self.q.get()
-            req = urllib.request.Request(self.url, data=jpeg, method="POST", headers={
+            headers = {
                 "Content-Type": "image/jpeg",
                 "X-Camera-Key": CAMERA_KEY,
                 "X-Cat-Present": "true" if cat else "false",
                 "X-Cat-Confidence": f"{conf:.2f}",
-            })
+            }
             try:
-                with urllib.request.urlopen(req, timeout=5) as res:
-                    res.read()
-                if self.ok is not True:
-                    print(f"[Stream] Đang gửi hình lên {AURAPET_SERVER}")
-                self.ok = True
-            except urllib.error.HTTPError as e:
-                if self.ok is not False:
-                    hint = {403: "sai CAMERA_KEY", 503: "máy chủ chưa đặt CAMERA_KEY"}.get(e.code, "")
-                    print(f"[Stream] Máy chủ từ chối hình: HTTP {e.code} {hint}")
-                self.ok = False
-                time.sleep(3)
+                status = self._post(jpeg, headers)
             except Exception as e:  # mất mạng, máy chủ tắt...
                 if self.ok is not False:
                     print(f"[Stream] Không gửi được hình: {e}. Sẽ thử lại.")
                 self.ok = False
                 time.sleep(2)
+                continue
+            if 200 <= status < 300:
+                if self.ok is not True:
+                    print(f"[Stream] Đang gửi hình lên {AURAPET_SERVER}")
+                self.ok = True
+                self.sent += 1
+            else:
+                if self.ok is not False:
+                    hint = {403: "sai CAMERA_KEY", 503: "máy chủ chưa đặt CAMERA_KEY"}.get(status, "")
+                    print(f"[Stream] Máy chủ từ chối hình: HTTP {status} {hint}")
+                self.ok = False
+                time.sleep(3)
 
 
 def annotate(frame, boxes, max_width=None):
@@ -306,10 +347,15 @@ def open_camera():
         if cap is None:
             cap = cv2.VideoCapture(idx)
         if cap.isOpened():
+            # Webcam USB chỉ đạt 60 khung/giây ở chế độ nén MJPG (chế độ thô YUYV thường tối đa 30)
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*"MJPG"))
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # luôn lấy khung mới nhất, giảm độ trễ
             if idx != CAMERA_INDEX:
                 print(f"[Camera] Không thấy camera {CAMERA_INDEX}, đang dùng camera {idx}")
+            print(f"[Camera] Xin {CAMERA_FPS:g} khung/giây, camera báo hỗ trợ {cap.get(cv2.CAP_PROP_FPS):g}")
             return cap
         cap.release()
     return None
@@ -339,6 +385,7 @@ def main():
     preview = SHOW_PREVIEW
     cap = None
     last_scan = 0.0
+    captured, stats_from, stats_sent = 0, time.time(), 0
     frame_gap = 1.0 / STREAM_FPS if (uploader is not None or preview) else SCAN_INTERVAL
     try:
         while True:
@@ -358,6 +405,15 @@ def main():
                 cap = None
                 time.sleep(2)
                 continue
+
+            captured += 1
+            if t0 - stats_from >= 15:
+                span = t0 - stats_from
+                sent = (uploader.sent - stats_sent) if uploader is not None else 0
+                print(f"[Stream] Camera {captured / span:.1f} khung/giây"
+                      + (f", gửi lên web {sent / span:.1f} khung/giây" if uploader is not None else ""))
+                captured, stats_from = 0, t0
+                stats_sent = uploader.sent if uploader is not None else 0
 
             if frame.shape[1] != CAMERA_WIDTH or frame.shape[0] != CAMERA_HEIGHT:
                 frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))  # để ROI luôn đúng toạ độ

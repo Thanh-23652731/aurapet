@@ -94,6 +94,9 @@ python firmware\raspberry_pi\cat_detection_gateway.py
 | `CAT_ROI` | cả khung | Vùng quan sát `x1,y1,x2,y2` (pixel trên khung 640x480), vd. quanh khay ăn |
 | `CAT_NEAR_AREA` | `0` | Tỉ lệ diện tích tối thiểu, vd. `0.05` = mèo phải chiếm ≥ 5% khung hình (bỏ qua mèo ở xa) |
 | `REPORT_INTERVAL` | `10` | Mèo vẫn ở đó thì nhắc lại tối đa mỗi 10 giây |
+| `CAMERA_FPS` / `STREAM_FPS` | `60` / `60` | Khung/giây xin từ camera (chế độ MJPG) và gửi lên web. Tốc độ thật phụ thuộc webcam (nhiều loại chỉ 30) và Wi-Fi; log in ra con số thực tế mỗi 15 giây |
+| `JPEG_QUALITY` | `70` | Giảm 50–60 nếu hình bị giật vì Wi-Fi yếu |
+| `TORCH_THREADS` | nửa số nhân CPU | Số nhân dành cho YOLO, phần còn lại lo hình trực tiếp |
 | `SHOW_PREVIEW` | `0` | `1` = mở cửa sổ xem trước (cần `opencv-python`), nhấn `q` để thoát |
 
 Nếu camera lỗi, script chỉ báo lỗi và thử mở lại — **không** giả lập "có mèo". Muốn dùng model tự train, đặt `YOLO_MODEL=đường/dẫn/best.pt` (và sửa `CAT_CLASS_ID` nếu lớp mèo không phải 15).

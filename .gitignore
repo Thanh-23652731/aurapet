@@ -102,3 +102,4 @@ __pycache__/
 *.pyc
 .venv/
 firmware/raspberry_pi/*.pt
+firmware/raspberry_pi/*.env
