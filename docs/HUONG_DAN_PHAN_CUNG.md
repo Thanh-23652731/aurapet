@@ -80,7 +80,7 @@ Firmware `firmware/esp32_litter_water/esp32_litter_water.ino`. Bơm tuần hoàn
 3. Đo bình thật rồi sửa `NUOC_CAN_CM` (0%) và `NUOC_DAY_CM` (100%); `NUOC_THAP_PT = 20` là ngưỡng báo sắp hết nước (hết báo khi lên lại ≥ 25%).
 4. Nạp code, mở Serial Monitor 115200: thấy `[MQTT] Da ket noi` và `Nuoc: 45% (4.2 cm)` mỗi 2 giây.
 
-ESP32 gửi `PREFIX/water` mỗi 5 giây (và ngay khi đổi trạng thái). Web/app hiện thẻ **Bình nước** với % nước; khi sắp cạn sẽ hiện "Sắp hết nước", thông báo trên đầu trang và mục Hoạt động. Mất Wi-Fi thì máy vẫn dọn cát và đo nước bình thường, chỉ không gửi lên web.
+ESP32 gửi `PREFIX/water` mỗi 5 giây (và ngay khi đổi trạng thái), kèm trạng thái khay (sẵn sàng / mèo trong khay / chờ cát vón / đang dọn). Mỗi lượt mèo đi vệ sinh và mỗi lần dọn cát xong được gửi lên `PREFIX/litter` và ghi vào lịch sử vệ sinh của bé đang gán cho máy cho ăn (đổi bé ở **Cài đặt → Thiết bị**). Lượt ngắn hơn 5 giây (`THOI_GIAN_TOI_THIEU_DI_VS`) coi như mèo chỉ ghé qua và không được ghi. Web/app hiện thẻ **Bình nước** với % nước; khi sắp cạn sẽ hiện "Sắp hết nước", thông báo trên đầu trang và mục Hoạt động. Mất Wi-Fi thì máy vẫn dọn cát và đo nước bình thường, chỉ không gửi lên web.
 
 ## 7. Camera nhận diện mèo (YOLOv8) — Raspberry Pi 4 hoặc laptop
 

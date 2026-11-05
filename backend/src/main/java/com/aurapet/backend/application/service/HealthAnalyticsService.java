@@ -144,6 +144,7 @@ public class HealthAnalyticsService {
                         .petId(l.getPetId())
                         .result(l.getResult())
                         .imageUrl(l.getImageUrl())
+                        .durationSec(l.getDurationSec())
                         .timestamp(l.getTimestamp())
                         .build())
                 .toList();

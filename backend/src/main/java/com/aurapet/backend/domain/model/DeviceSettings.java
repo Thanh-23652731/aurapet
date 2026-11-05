@@ -43,6 +43,9 @@ public class DeviceSettings {
     /** Con mèo được gán cho máy cho ăn (log cho ăn sẽ ghi cho con này). */
     private UUID feederPetId;
 
+    /** Lần máy dọn cát cào xong gần nhất (ESP32 báo qua PREFIX/litter). */
+    private Instant lastLitterCleanAt;
+
     @UpdateTimestamp
     private Instant updatedAt;
 }

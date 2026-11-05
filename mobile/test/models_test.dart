@@ -33,6 +33,9 @@ void main() {
         'waterPercent': 15,
         'lowWater': true,
         'waterSensorOk': true,
+        'litterState': 'cat_inside',
+        'lastLitterVisitAt': '2026-10-27T06:10:00Z',
+        'lastLitterVisitSec': 95,
         'lastFeedAt': '2026-10-27T05:52:16Z',
         'settings': {'targetGram': 25, 'autoMode': true, 'scheduleTimes': ['07:00', '18:00']},
       });
@@ -40,6 +43,9 @@ void main() {
       expect(d.waterOnline, isTrue);
       expect(d.waterPercent, 15);
       expect(d.lowWater, isTrue);
+      expect(d.litterState, 'cat_inside');
+      expect(d.lastLitterVisitSec, 95);
+      expect(d.lastLitterCleanAt, isNull);
       expect(d.bowlWeightGram, 12.5);
       expect(d.settings.targetGram, 25);
       expect(d.settings.scheduleTimes, ['07:00', '18:00']);

@@ -38,6 +38,14 @@ public class DeviceStateDto {
     private boolean lowWater;
     private boolean waterSensorOk;
 
+    // ---- Khay vệ sinh (cùng ESP32 máy dọn cát: online = waterOnline) ----
+    /** idle | cat_inside | waiting | cleaning; null khi chưa có số liệu hoặc máy mất kết nối. */
+    private String litterState;
+    private Instant lastLitterVisitAt;
+    private Integer lastLitterVisitSec;
+    private String lastLitterVisitPetName;
+    private Instant lastLitterCleanAt;
+
     private Instant lastFeedAt;
     private Integer lastFeedGram;
     private String lastFeedSource;

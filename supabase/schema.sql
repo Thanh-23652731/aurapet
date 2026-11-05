@@ -67,8 +67,11 @@ CREATE TABLE IF NOT EXISTS public.litter_logs (
     pet_id UUID NOT NULL REFERENCES public.pets(id) ON DELETE CASCADE,
     result VARCHAR(50) NOT NULL DEFAULT 'NORMAL',
     image_url VARCHAR(1024),
+    duration_sec INTEGER,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+-- Thời gian mèo ở trong khay (giây), do ESP32 máy dọn cát đo
+ALTER TABLE public.litter_logs ADD COLUMN IF NOT EXISTS duration_sec INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_litter_logs_pet_id ON public.litter_logs(pet_id);
 
@@ -97,6 +100,8 @@ CREATE TABLE IF NOT EXISTS public.device_settings (
 -- Bơm nước là bơm tuần hoàn chạy liên tục (chỉ theo dõi mực nước), bỏ cài đặt "tự bơm khi mèo đến" của bản cũ
 ALTER TABLE public.device_settings DROP COLUMN IF EXISTS pump_auto;
 ALTER TABLE public.device_settings DROP COLUMN IF EXISTS pump_seconds;
+-- Lần máy dọn cát cào xong gần nhất
+ALTER TABLE public.device_settings ADD COLUMN IF NOT EXISTS last_litter_clean_at TIMESTAMPTZ;
 
 -- Gỡ các bảng giả lập của phiên bản cũ (không còn dùng)
 DROP TABLE IF EXISTS public.system_status;

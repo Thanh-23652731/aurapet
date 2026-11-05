@@ -15,7 +15,8 @@
 | `PREFIX/log` | ESP32 → server | kết quả mỗi lần nhả hạt (`addedGram`, `result`) |
 | `PREFIX/status` | ESP32 → server | `online` / `offline` (retained + Last Will) |
 | `PREFIX/vision` | Raspberry Pi → server | `{catPresent, confidence}` từ camera YOLOv8 khi mèo đến gần / rời đi |
-| `PREFIX/water` | ESP32 máy dọn cát → server | `{waterPercent, waterCm, lowWater, sensorOk}` mực nước bình bơm (5 s/lần) |
+| `PREFIX/water` | ESP32 máy dọn cát → server | `{waterPercent, waterCm, lowWater, sensorOk, litterState}` mực nước bình bơm + trạng thái khay (5 s/lần) |
+| `PREFIX/litter` | ESP32 máy dọn cát → server | `{event: visit/cleaned/clean_stopped, durationSec, agoSec}` mỗi lượt đi vệ sinh và lần dọn cát |
 | `PREFIX/command` | server → ESP32 | `FEED`, `STOP`, `TARE`, `AUTO`, `SET_TARGET` |
 
 ## Quy tắc tự động (theo lưu đồ Hình 4 và Hình 6)
@@ -23,6 +24,7 @@
 - **Tự cho ăn**: chế độ tự động bật + có mèo (cảm biến ESP32 hoặc camera Pi) + khay < 10 g + đã qua thời gian chờ.
 - **Lịch hẹn giờ**: đến giờ (giờ Việt Nam), backend gửi lệnh nếu khay < 10 g; nếu máy offline thì tạo cảnh báo "lỡ bữa".
 - **Bình nước**: bơm tuần hoàn chạy liên tục (nguồn riêng, không điều khiển từ xa). Khi mực nước < 20% (hết báo khi ≥ 25%), web/app hiện "Sắp hết nước" và tạo cảnh báo để người dùng đổ thêm; mèo đến **không** bật bơm.
+- **Khay vệ sinh**: 1 lượt = từ lúc mèo vào tới lúc ra mà không quay lại trong 15 s (ngắn hơn 5 s thì bỏ qua). Mỗi lượt được ghi vào `litter_logs` của bé đang gán cho máy cho ăn, kèm thời gian ở trong khay. ESP32 giữ tối đa 8 sự kiện khi mất mạng và gửi bù kèm `agoSec` để ghi đúng giờ.
 
 ## Nguồn dữ liệu
 

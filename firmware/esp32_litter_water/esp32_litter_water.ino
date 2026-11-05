@@ -5,12 +5,18 @@
  * - Muc nuoc: HC-SR04 thu 2 do khoang cach toi mat nuoc, hien len LCD va GUI LEN WEB/APP
  *   qua MQTT de bao "sap het nuoc" cho nguoi dung do them. Bom tuan hoan chay doc lap,
  *   ESP32 KHONG bat/tat bom.
+ * - Lich su ve sinh: moi luot meo di ve sinh va moi lan don cat duoc gui len web/app.
  *
  * MQTT (PREFIX dat trong secrets.h, PHAI giong MQTT_TOPIC_PREFIX trong .env):
- *   PREFIX/water  ESP32 -> server, 5 giay/lan va ngay khi doi trang thai sap het nuoc
- *     {"waterPercent":45,"waterCm":4.2,"lowWater":false,"sensorOk":true,"rssi":-60,"ip":"192.168.1.20"}
+ *   PREFIX/water   ESP32 -> server, 5 giay/lan va ngay khi doi trang thai (muc nuoc + trang thai khay)
+ *     {"waterPercent":45,"waterCm":4.2,"lowWater":false,"sensorOk":true,"litterState":"idle","rssi":-60,"ip":"..."}
+ *   PREFIX/litter  ESP32 -> server, moi su kien khay ve sinh
+ *     {"event":"visit","durationSec":42,"agoSec":0}   meo di ve sinh xong (1 luot)
+ *     {"event":"cleaned","durationSec":0,"agoSec":0}  da cao cat xong
+ *     {"event":"clean_stopped",...}                   dung cao giua chung vi meo vao
  *
- * Mat Wi-Fi / MQTT thi may van don cat va do nuoc binh thuong, chi khong gui len web.
+ * Mat Wi-Fi / MQTT thi may van don cat va do nuoc binh thuong. Su kien ve sinh duoc
+ * giu lai (toi da 8) va gui bu khi co mang, kem so giay da troi qua de ghi dung gio.
  *
  * Thu vien: PubSubClient (Nick O'Leary), LiquidCrystal I2C.
  * Sao chep secrets.example.h thanh secrets.h va dien Wi-Fi + MQTT.
@@ -59,9 +65,24 @@ PubSubClient mqtt(wifiClient);
 String TOPIC_WATER;
 const unsigned long CHU_KY_GUI_NUOC = 5000;   // gui muc nuoc len web 5s/lan
 const unsigned long CHU_KY_THU_MQTT = 5000;   // mat ket noi thi 5s thu lai 1 lan
+String TOPIC_LITTER;
 unsigned long lanGuiNuoc = 0;
 unsigned long lanThuMqtt = 0;
 bool daBaoWifi = false;
+
+// --- LICH SU VE SINH ---
+// 1 luot = tu luc meo vao den luc meo ra ma khong quay lai trong THOI_GIAN_CHO_CAT_VON.
+// Meo ra roi vao lai trong luc cho van tinh chung 1 luot.
+const unsigned long THOI_GIAN_TOI_THIEU_DI_VS = 5000;  // ngan hon 5s coi nhu meo chi ghe qua, khong ghi
+bool dangCoLuot = false;
+unsigned long luotBatDau = 0;
+unsigned long luotKetThuc = 0;
+int trangThaiDaGui = -1;   // trang thai khay da bao len web lan gan nhat
+
+struct SuKien { const char* loai; int giay; unsigned long luc; };
+const int MAX_SU_KIEN = 8;
+SuKien hangCho[MAX_SU_KIEN];
+int soSuKien = 0;
 
 // --- THONG SO CHUNG ---
 const unsigned long THOI_GIAN_CHO_CAT_VON   = 15000;  // 15s sau khi meo ra
@@ -118,16 +139,68 @@ bool nutVuaNhan() {
 
 // ============================ MANG ============================
 
-// Gui muc nuoc hien tai len PREFIX/water (bo qua neu chua ket noi MQTT)
+const char* tenTrangThai(int tt) {
+  if (tt == 1) return "cat_inside";
+  if (tt == 2) return "waiting";
+  if (tt == 3) return "cleaning";
+  return "idle";
+}
+
+// Gui muc nuoc + trang thai khay len PREFIX/water (bo qua neu chua ket noi MQTT)
 void guiNuoc() {
   lanGuiNuoc = millis();
   if (!mqtt.connected()) return;
-  char buf[200];
+  char buf[240];
   snprintf(buf, sizeof(buf),
-           "{\"waterPercent\":%d,\"waterCm\":%.1f,\"lowWater\":%s,\"sensorOk\":%s,\"rssi\":%d,\"ip\":\"%s\"}",
+           "{\"waterPercent\":%d,\"waterCm\":%.1f,\"lowWater\":%s,\"sensorOk\":%s,\"litterState\":\"%s\",\"rssi\":%d,\"ip\":\"%s\"}",
            nuocPhanTram, nuocCm, nuocThap ? "true" : "false", nuocPhanTram >= 0 ? "true" : "false",
-           (int)WiFi.RSSI(), WiFi.localIP().toString().c_str());
+           tenTrangThai(trangThai), (int)WiFi.RSSI(), WiFi.localIP().toString().c_str());
   mqtt.publish(TOPIC_WATER.c_str(), buf);
+}
+
+// Gui cac su kien dang cho len PREFIX/litter (giu lai neu chua co mang)
+void guiSuKien() {
+  while (soSuKien > 0 && mqtt.connected()) {
+    char buf[120];
+    snprintf(buf, sizeof(buf), "{\"event\":\"%s\",\"durationSec\":%d,\"agoSec\":%lu}",
+             hangCho[0].loai, hangCho[0].giay, (millis() - hangCho[0].luc) / 1000UL);
+    if (!mqtt.publish(TOPIC_LITTER.c_str(), buf)) return;
+    for (int i = 1; i < soSuKien; i++) hangCho[i - 1] = hangCho[i];
+    soSuKien--;
+  }
+}
+
+// Them 1 su kien (luc = thoi diem xay ra theo millis) va gui ngay neu co mang
+void themSuKien(const char* loai, int giay, unsigned long luc) {
+  if (soSuKien == MAX_SU_KIEN) {          // day hang cho: bo su kien cu nhat
+    for (int i = 1; i < MAX_SU_KIEN; i++) hangCho[i - 1] = hangCho[i];
+    soSuKien--;
+  }
+  hangCho[soSuKien].loai = loai;
+  hangCho[soSuKien].giay = giay;
+  hangCho[soSuKien].luc = luc;
+  soSuKien++;
+  Serial.print("[Khay] Su kien: ");
+  Serial.println(loai);
+  guiSuKien();
+}
+
+// Meo vao khay: bat dau 1 luot moi (neu dang trong luot thi tinh tiep)
+void batDauLuot() {
+  if (!dangCoLuot) {
+    dangCoLuot = true;
+    luotBatDau = millis();
+  }
+}
+
+// Het thoi gian cho (hoac bam nut don): chot luot ve sinh va bao len web
+void ketThucLuot() {
+  if (!dangCoLuot) return;
+  dangCoLuot = false;
+  unsigned long dai = luotKetThuc - luotBatDau;
+  if (dai >= THOI_GIAN_TOI_THIEU_DI_VS) {
+    themSuKien("visit", (int)(dai / 1000UL), luotKetThuc);
+  }
 }
 
 // Giu ket noi MQTT, KHONG chan chuong trinh lau (Wi-Fi tu ket noi lai nho setAutoReconnect)
@@ -143,6 +216,7 @@ void giuKetNoi() {
   }
   if (mqtt.connected()) {
     mqtt.loop();
+    guiSuKien();
     return;
   }
   if (millis() - lanThuMqtt < CHU_KY_THU_MQTT) return;
@@ -154,6 +228,7 @@ void giuKetNoi() {
   if (mqtt.connect(id.c_str(), coTaiKhoan ? MQTT_USER : nullptr, coTaiKhoan ? MQTT_PASS : nullptr)) {
     Serial.println("[MQTT] Da ket noi, gui muc nuoc len " + TOPIC_WATER);
     guiNuoc();
+    guiSuKien();   // gui bu cac su kien luc mat mang
   } else {
     Serial.print("[MQTT] Loi ket noi rc=");
     Serial.println(mqtt.state());
@@ -300,6 +375,7 @@ void setup() {
   // Wi-Fi + MQTT: bat dau ket noi o nen (khong cho), PIR khoi dong 5s trong luc do
   TOPIC_WATER = String(TOPIC_PREFIX);
   while (TOPIC_WATER.endsWith("/")) TOPIC_WATER.remove(TOPIC_WATER.length() - 1);
+  TOPIC_LITTER = TOPIC_WATER + "/litter";
   TOPIC_WATER += "/water";
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
@@ -335,8 +411,15 @@ void loop() {
   giuKetNoi();
 
   if (nutVuaNhan() && trangThai != 1 && trangThai != 3) {
+    if (trangThai == 2) ketThucLuot();   // dang cho cat von ma bam don -> chot luot truoc
     trangThai = 3;
     Serial.println("Nut don cat duoc bam!");
+  }
+
+  // Trang thai khay doi -> bao len web ngay (truoc khi vao buoc cao cat, vi buoc do chan chuong trinh)
+  if (trangThai != trangThaiDaGui) {
+    trangThaiDaGui = trangThai;
+    guiNuoc();
   }
 
   // Do muc nuoc moi 2 giay, KHONG do khi dang cao cat (de motor khong bi tre)
@@ -363,6 +446,7 @@ void loop() {
       digitalWrite(ledRed, LOW);
       if (coMeo()) {
         trangThai = 1;
+        batDauLuot();
         Serial.println("Meo vao thau cat!");
       }
       break;
@@ -373,6 +457,7 @@ void loop() {
       if (!coMeo()) {
         trangThai = 2;
         thoiGianMeoRa = millis();
+        luotKetThuc = thoiGianMeoRa;
         Serial.println("Meo da ra khoi thau!");
       }
       break;
@@ -382,6 +467,7 @@ void loop() {
         trangThai = 1;
         Serial.println("Meo vao thau cat!");
       } else if (millis() - thoiGianMeoRa >= THOI_GIAN_CHO_CAT_VON) {
+        ketThucLuot();
         trangThai = 3;
       }
       break;
@@ -391,9 +477,12 @@ void loop() {
       digitalWrite(ledRed, HIGH);
       capNhatLCD(trangThai);
       if (donDepCat()) {
+        themSuKien("cleaned", 0, millis());
         trangThai = 0;
       } else {
+        themSuKien("clean_stopped", 0, millis());
         trangThai = 1;                 // bi dung vi co meo
+        batDauLuot();
         Serial.println("Meo vao thau cat!");
       }
       break;

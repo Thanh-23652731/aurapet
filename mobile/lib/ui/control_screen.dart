@@ -237,6 +237,10 @@ class _ControlScreenState extends ConsumerState<ControlScreen> {
           _WaterPanel(d: d),
           const SizedBox(height: 12),
 
+          // ---------------- Khay vệ sinh (ESP32 máy dọn cát)
+          _LitterPanel(d: d),
+          const SizedBox(height: 12),
+
           // ---------------- 7 ngày + hoạt động
           Panel(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -500,6 +504,59 @@ class _WaterPanel extends StatelessWidget {
         ]),
         const SizedBox(height: 6),
         Text(note, style: TextStyle(color: low ? AppColors.warn : context.muted, fontSize: 13)),
+      ]),
+    );
+  }
+}
+
+/// Khay vệ sinh: trạng thái máy dọn cát, lần đi vệ sinh và lần dọn cát gần nhất.
+class _LitterPanel extends StatelessWidget {
+  final DeviceState? d;
+
+  const _LitterPanel({required this.d});
+
+  static String _dur(int sec) => sec < 60 ? '$sec giây' : '${sec ~/ 60} phút${sec % 60 > 0 ? ' ${sec % 60} giây' : ''}';
+
+  @override
+  Widget build(BuildContext context) {
+    final w = d;
+    final on = w?.waterOnline ?? false;
+    final everSeen = w?.waterLastSeen != null;
+    final (String label, Color color) = !on
+        ? (everSeen ? ('Mất tín hiệu', AppColors.stop) : ('Chưa kết nối', context.muted))
+        : switch (w?.litterState) {
+            'cat_inside' => ('Mèo đang trong khay', AppColors.warn),
+            'waiting' => ('Chờ cát vón', AppColors.warn),
+            'cleaning' => ('Đang dọn cát', AppColors.warn),
+            _ => ('Sẵn sàng', AppColors.leaf),
+          };
+    final visit = w?.lastLitterVisitAt == null
+        ? '–'
+        : [
+            ago(w!.lastLitterVisitAt),
+            if (w.lastLitterVisitSec != null) _dur(w.lastLitterVisitSec!),
+          ].join(' · ');
+
+    return Panel(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        PanelTitle('Khay vệ sinh',
+            icon: Icons.inventory_2_outlined,
+            trailing: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13))),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: Fact('Đi vệ sinh gần nhất', visit)),
+          const SizedBox(width: 8),
+          Expanded(child: Fact('Dọn cát gần nhất', w?.lastLitterCleanAt == null ? '–' : ago(w!.lastLitterCleanAt))),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+          !on
+              ? (everSeen
+                  ? 'Máy dọn cát mất kết nối, lượt đi vệ sinh sẽ được gửi bù khi có mạng lại.'
+                  : 'Chưa nhận dữ liệu từ máy dọn cát. Nạp firmware esp32_litter_water.')
+              : 'Máy tự ghi mỗi lượt bé đi vệ sinh và tự cào cát sau khi bé ra 15 giây.',
+          style: TextStyle(color: context.muted, fontSize: 13),
+        ),
       ]),
     );
   }

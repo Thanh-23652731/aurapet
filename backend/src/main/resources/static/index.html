@@ -220,13 +220,14 @@
         <article class="panel dev dev-litter" aria-labelledby="litter-title">
           <header class="dev-head">
             <h2 id="litter-title"><svg class="ico"><use href="#i-box"/></svg>Khay vệ sinh</h2>
-            <span class="badge off"><i></i><span>Chưa kết nối</span></span>
+            <span class="badge off" id="litter-state"><i></i><span>Chưa kết nối</span></span>
           </header>
           <dl class="kv">
-            <div><dt>Lần gần nhất</dt><dd id="litter-last">–</dd></div>
+            <div><dt>Đi vệ sinh gần nhất</dt><dd id="litter-last">–</dd></div>
+            <div><dt>Dọn cát gần nhất</dt><dd id="litter-clean">–</dd></div>
             <div><dt>7 ngày qua</dt><dd id="litter-week">–</dd></div>
           </dl>
-          <p class="dev-note">Khay chưa gắn bộ điều khiển nên không có nút vệ sinh từ xa. Số liệu lấy từ nhật ký đã ghi.</p>
+          <p class="dev-note" id="litter-note"></p>
         </article>
        </div>
 

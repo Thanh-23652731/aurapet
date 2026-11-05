@@ -5,6 +5,7 @@ import com.aurapet.backend.domain.model.*;
 import com.aurapet.backend.domain.repository.AlertRepository;
 import com.aurapet.backend.domain.repository.DeviceSettingsRepository;
 import com.aurapet.backend.domain.repository.FeedingLogRepository;
+import com.aurapet.backend.domain.repository.LitterLogRepository;
 import com.aurapet.backend.domain.repository.PetRepository;
 import com.aurapet.backend.interfaces.web.exception.BadRequestException;
 import com.aurapet.backend.interfaces.web.exception.DeviceUnavailableException;
@@ -48,6 +49,7 @@ public class DeviceService {
 
     private final DeviceSettingsRepository settingsRepository;
     private final FeedingLogRepository feedingLogRepository;
+    private final LitterLogRepository litterLogRepository;
     private final PetRepository petRepository;
     private final AlertRepository alertRepository;
     private final DeviceCommandPublisher publisher;
@@ -77,6 +79,15 @@ public class DeviceService {
     private volatile boolean lastLowWater;
     private Instant lastLowWaterAlertAt = Instant.EPOCH;
 
+    // ---- Khay vệ sinh (ESP32 máy dọn cát gửi sự kiện PREFIX/litter) ----
+    /** ESP32 gửi bù sự kiện lúc mất mạng: bỏ qua sự kiện cũ hơn mức này (đồng hồ ESP32 có thể đã khởi động lại). */
+    private static final long MAX_EVENT_AGE_SEC = 7 * 24 * 3600;
+    private static final Set<String> LITTER_STATES = Set.of("idle", "cat_inside", "waiting", "cleaning");
+    private volatile Instant lastLitterVisitAt;
+    private volatile Integer lastLitterVisitSec;
+    private volatile String lastLitterVisitPetName;
+    private volatile boolean lastLitterLoaded;
+
     private volatile Instant lastFeedAt;
     private volatile Integer lastFeedGram;
     private volatile String lastFeedSource;
@@ -86,12 +97,14 @@ public class DeviceService {
 
     public DeviceService(DeviceSettingsRepository settingsRepository,
                          FeedingLogRepository feedingLogRepository,
+                         LitterLogRepository litterLogRepository,
                          PetRepository petRepository,
                          AlertRepository alertRepository,
                          DeviceCommandPublisher publisher,
                          ObjectMapper mapper) {
         this.settingsRepository = settingsRepository;
         this.feedingLogRepository = feedingLogRepository;
+        this.litterLogRepository = litterLogRepository;
         this.petRepository = petRepository;
         this.alertRepository = alertRepository;
         this.publisher = publisher;
@@ -147,7 +160,15 @@ public class DeviceService {
                     .waterPercent(sensorOk ? w.path("waterPercent").asInt() : null)
                     .waterCm(sensorOk ? round1(w.path("waterCm").asDouble()) : null)
                     .lowWater(w.path("lowWater").asBoolean(false));
+            String ls = w.path("litterState").asText("");
+            if (wOnline && LITTER_STATES.contains(ls)) b.litterState(ls);
         }
+
+        loadLastLitterVisitIfNeeded();
+        b.lastLitterVisitAt(lastLitterVisitAt)
+                .lastLitterVisitSec(lastLitterVisitSec)
+                .lastLitterVisitPetName(lastLitterVisitPetName)
+                .lastLitterCleanAt(s.getLastLitterCleanAt());
         return b.build();
     }
 
@@ -234,6 +255,7 @@ public class DeviceService {
                 case "status" -> handleStatus(event.payload());
                 case "vision" -> handleVision(event.payload());
                 case "water" -> handleWater(event.payload());
+                case "litter" -> handleLitter(event.payload());
                 default -> log.debug("[Device] Bỏ qua channel lạ: {}", event.channel());
             }
         } catch (Exception e) {
@@ -364,6 +386,78 @@ public class DeviceService {
             addAlert(AlertType.HEALTH, AlertLevel.INFO, "Đã đổ thêm nước" + (pct >= 0 ? " (" + pct + "%)" : ""));
         }
         lastLowWater = low;
+    }
+
+    /**
+     * Sự kiện khay vệ sinh từ ESP32 máy dọn cát:
+     *   visit          mèo đi vệ sinh xong 1 lượt (durationSec = thời gian ở trong khay) -> ghi litter_logs
+     *   cleaned        máy cào cát xong
+     *   clean_stopped  dừng cào giữa chừng vì mèo vào khay
+     * agoSec: số giây từ lúc xảy ra tới lúc gửi (ESP32 gửi bù sau khi mất mạng).
+     */
+    synchronized void handleLitter(String payload) throws Exception {
+        JsonNode n = mapper.readTree(payload);
+        String event = n.path("event").asText("");
+        long ago = Math.max(0, n.path("agoSec").asLong(0));
+        if (ago > MAX_EVENT_AGE_SEC) {
+            log.info("[Device] Bỏ qua sự kiện khay quá cũ ({} giây): {}", ago, event);
+            return;
+        }
+        Instant at = Instant.now().minusSeconds(ago);
+        waterLastSeen = Instant.now(); // cùng ESP32 với cảm biến nước -> máy đang online
+
+        switch (event) {
+            case "visit" -> {
+                int sec = Math.max(0, n.path("durationSec").asInt(0));
+                Pet pet = resolveFeederPet();
+                loadLastLitterVisitIfNeeded();
+                if (lastLitterVisitAt == null || !at.isBefore(lastLitterVisitAt)) {
+                    lastLitterVisitAt = at;
+                    lastLitterVisitSec = sec;
+                    lastLitterVisitPetName = pet != null ? pet.getName() : null;
+                }
+                if (pet == null) {
+                    addAlert(AlertType.LITTER, AlertLevel.INFO,
+                            "Mèo vừa đi vệ sinh (" + formatDuration(sec) + ") — chưa có thú cưng để ghi nhật ký");
+                    return;
+                }
+                litterLogRepository.save(LitterLog.builder()
+                        .petId(pet.getId())
+                        .result(LitterResult.NORMAL)
+                        .durationSec(sec)
+                        .timestamp(at)
+                        .build());
+                addAlert(AlertType.LITTER, AlertLevel.INFO,
+                        pet.getName() + " vừa đi vệ sinh (" + formatDuration(sec) + " trong khay)");
+            }
+            case "cleaned" -> {
+                DeviceSettings s = getSettings();
+                if (s.getLastLitterCleanAt() == null || at.isAfter(s.getLastLitterCleanAt())) {
+                    s.setLastLitterCleanAt(at);
+                    saveSettings(s);
+                }
+                addAlert(AlertType.LITTER, AlertLevel.INFO, "Máy đã dọn cát xong");
+            }
+            case "clean_stopped" -> addAlert(AlertType.LITTER, AlertLevel.INFO,
+                    "Máy dừng cào cát giữa chừng vì mèo vào khay, sẽ dọn lại sau khi bé ra");
+            default -> log.debug("[Device] Bỏ qua sự kiện khay lạ: {}", event);
+        }
+    }
+
+    private void loadLastLitterVisitIfNeeded() {
+        if (lastLitterLoaded) return;
+        lastLitterLoaded = true;
+        litterLogRepository.findFirstByOrderByTimestampDesc().ifPresent(l -> {
+            lastLitterVisitAt = l.getTimestamp();
+            lastLitterVisitSec = l.getDurationSec();
+            lastLitterVisitPetName = petRepository.findById(l.getPetId()).map(Pet::getName).orElse(null);
+        });
+    }
+
+    static String formatDuration(int sec) {
+        if (sec < 60) return sec + " giây";
+        int m = sec / 60, s = sec % 60;
+        return s == 0 ? m + " phút" : m + " phút " + s + " giây";
     }
 
     // =====================================================================

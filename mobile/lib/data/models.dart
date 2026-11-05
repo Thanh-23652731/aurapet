@@ -119,6 +119,12 @@ class DeviceState {
   final int waterPercent; // -1 = chưa có số liệu / cảm biến lỗi
   final bool lowWater;
   final bool waterSensorOk;
+  // Khay vệ sinh (cùng ESP32 máy dọn cát)
+  final String? litterState; // idle | cat_inside | waiting | cleaning
+  final DateTime? lastLitterVisitAt;
+  final int? lastLitterVisitSec;
+  final String? lastLitterVisitPetName;
+  final DateTime? lastLitterCleanAt;
   final DateTime? lastFeedAt;
   final int? lastFeedGram;
   final String? lastFeedSource;
@@ -141,6 +147,11 @@ class DeviceState {
     this.waterPercent = -1,
     this.lowWater = false,
     this.waterSensorOk = false,
+    this.litterState,
+    this.lastLitterVisitAt,
+    this.lastLitterVisitSec,
+    this.lastLitterVisitPetName,
+    this.lastLitterCleanAt,
     this.lastFeedAt,
     this.lastFeedGram,
     this.lastFeedSource,
@@ -164,6 +175,11 @@ class DeviceState {
         waterPercent: j['waterPercent'] == null ? -1 : _int(j['waterPercent'], -1),
         lowWater: _bool(j['lowWater']),
         waterSensorOk: _bool(j['waterSensorOk']),
+        litterState: j['litterState'] as String?,
+        lastLitterVisitAt: _date(j['lastLitterVisitAt']),
+        lastLitterVisitSec: j['lastLitterVisitSec'] == null ? null : _int(j['lastLitterVisitSec']),
+        lastLitterVisitPetName: j['lastLitterVisitPetName'] as String?,
+        lastLitterCleanAt: _date(j['lastLitterCleanAt']),
         lastFeedAt: _date(j['lastFeedAt']),
         lastFeedGram: j['lastFeedGram'] == null ? null : _int(j['lastFeedGram']),
         lastFeedSource: j['lastFeedSource'] as String?,

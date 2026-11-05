@@ -86,6 +86,7 @@
   const S = { user: null, device: null, stats: null, pets: [], selectedPet: null, gram: 30, chat: [], pet: null, dismissed: new Set(), actAll: false };
   const nf = (v, d = 2) => Number(v).toLocaleString('vi-VN', { maximumFractionDigits: d });
   const isToday = (iso) => iso && new Date(iso).toDateString() === new Date().toDateString();
+  const durText = (sec) => sec < 60 ? `${sec} giây` : `${Math.floor(sec / 60)} phút${sec % 60 ? ` ${sec % 60} giây` : ''}`;
   let pollTimer = null;
   let statsTimer = null;
 
@@ -258,7 +259,6 @@
     renderPetStrip();
   }
 
-  const LITTER = { NORMAL: 'Bình thường', ABNORMAL: 'Bất thường', DIARRHEA: 'Tiêu chảy', CONSTIPATION: 'Táo bón' };
   function setBadge(el, kind, text) {
     el.className = `badge ${kind}`;
     el.innerHTML = `<i></i><span>${esc(text)}</span>`;
@@ -274,7 +274,6 @@
       ['#m-food', '#m-meals', '#m-litter', '#m-weight'].forEach((s) => { $(s).textContent = '–'; });
       $('#m-food-goal').textContent = '';
       $('#m-weight-delta').textContent = '';
-      $('#litter-last').innerHTML = '<span class="na">Chưa có dữ liệu</span>';
       $('#litter-week').innerHTML = '<span class="na">–</span>';
       return;
     }
@@ -297,11 +296,8 @@
     dEl.textContent = dw ? `${dw > 0 ? '+' : ''}${nf(dw)} kg` : 'ổn định';
     dEl.className = Math.abs(dw) >= 0.2 ? 'up' : '';
 
-    const last = litter[0];
-    $('#litter-last').innerHTML = last
-      ? `${esc(ago(last.timestamp))} <small class="${last.result === 'NORMAL' ? 'ok-t' : 'bad-t'}">${esc(LITTER[last.result] || last.result)}</small>`
-      : '<span class="na">Chưa có ghi nhận</span>';
-    $('#litter-week').innerHTML = h ? `${h.weeklyLitterVisits} lần` : '<span class="na">–</span>';
+    // "Lần gần nhất" lấy từ máy dọn cát (renderDevice); ở đây chỉ còn số lần 7 ngày của bé đang chọn
+    $('#litter-week').innerHTML = h ? `${h.weeklyLitterVisits} lần <small>${esc(p.name)}</small>` : '<span class="na">–</span>';
   }
   $('#ps-open').addEventListener('click', () => {
     const p = S.pet?.pet;
@@ -440,6 +436,24 @@
         : 'Chưa nhận mực nước. Nạp firmware esp32_litter_water cho ESP32 máy dọn cát.')
       : !d.waterSensorOk ? 'Cảm biến siêu âm không đo được mặt nước, kiểm tra dây TRIG/ECHO.'
       : d.lowWater ? 'Hãy đổ thêm nước để bơm không chạy khô và bé luôn có nước uống.' : '';
+
+    // Khay vệ sinh (cùng ESP32 máy dọn cát với cảm biến nước)
+    const LST = { idle: ['ok', 'Sẵn sàng'], cat_inside: ['busy', 'Mèo đang trong khay'], waiting: ['busy', 'Chờ cát vón'], cleaning: ['busy', 'Đang dọn cát'] };
+    const lsEl = $('#litter-state');
+    if (!wOn) setBadge(lsEl, d.waterLastSeen ? 'bad' : 'off', d.waterLastSeen ? 'Mất tín hiệu' : 'Chưa kết nối');
+    else { const [k, t] = LST[d.litterState] || ['ok', 'Đang hoạt động']; setBadge(lsEl, k, t); }
+    $('#litter-last').innerHTML = d.lastLitterVisitAt
+      ? `${esc(ago(d.lastLitterVisitAt))} <small>${[d.lastLitterVisitPetName, d.lastLitterVisitSec != null ? durText(d.lastLitterVisitSec) : null].filter(Boolean).map(esc).join(' · ')}</small>`
+      : '<span class="na">Chưa có ghi nhận</span>';
+    $('#litter-clean').innerHTML = d.lastLitterCleanAt ? esc(ago(d.lastLitterCleanAt)) : '<span class="na">Chưa có</span>';
+    // Có lượt đi vệ sinh mới -> tải lại số liệu của bé (số lần hôm nay, 7 ngày)
+    if (S.litterSeen !== undefined && d.lastLitterVisitAt && d.lastLitterVisitAt !== S.litterSeen) loadPetSummary();
+    S.litterSeen = d.lastLitterVisitAt || null;
+    const lnEl = $('#litter-note');
+    lnEl.className = 'dev-note' + (!wOn && d.waterLastSeen ? ' bad' : '');
+    lnEl.textContent = !wOn
+      ? (d.waterLastSeen ? 'ESP32 máy dọn cát mất kết nối, lượt đi vệ sinh sẽ được gửi bù khi có mạng lại.' : 'Chưa nhận dữ liệu từ máy dọn cát. Nạp firmware esp32_litter_water.')
+      : 'Máy tự ghi mỗi lượt bé đi vệ sinh và tự cào cát sau khi bé ra 15 giây.';
 
     renderNotices();
   }

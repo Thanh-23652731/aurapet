@@ -16,5 +16,6 @@ public class LitterLogDto {
     private UUID petId;
     private LitterResult result;
     private String imageUrl;
+    private Integer durationSec;
     private Instant timestamp;
 }

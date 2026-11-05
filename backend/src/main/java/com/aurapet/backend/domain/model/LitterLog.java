@@ -29,6 +29,9 @@ public class LitterLog {
     @Column(length = 1024)
     private String imageUrl;
 
+    /** Thời gian mèo ở trong khay (giây), do ESP32 máy dọn cát đo. Null với bản ghi nhập tay/cũ. */
+    private Integer durationSec;
+
     @Column(nullable = false)
     private Instant timestamp;
 }

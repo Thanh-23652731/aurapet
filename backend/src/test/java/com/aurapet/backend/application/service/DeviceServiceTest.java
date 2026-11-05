@@ -5,6 +5,7 @@ import com.aurapet.backend.domain.model.*;
 import com.aurapet.backend.domain.repository.AlertRepository;
 import com.aurapet.backend.domain.repository.DeviceSettingsRepository;
 import com.aurapet.backend.domain.repository.FeedingLogRepository;
+import com.aurapet.backend.domain.repository.LitterLogRepository;
 import com.aurapet.backend.domain.repository.PetRepository;
 import com.aurapet.backend.interfaces.web.exception.BadRequestException;
 import com.aurapet.backend.interfaces.web.exception.DeviceUnavailableException;
@@ -48,6 +49,7 @@ class DeviceServiceTest {
     private FeedingLogRepository feedingRepo;
     private PetRepository petRepo;
     private AlertRepository alertRepo;
+    private LitterLogRepository litterRepo;
     private FakePublisher publisher;
     private DeviceService service;
     private Pet luna;
@@ -67,7 +69,10 @@ class DeviceServiceTest {
         when(petRepo.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(luna));
         when(feedingRepo.findFirstByOrderByTimestampDesc()).thenReturn(Optional.empty());
 
-        service = new DeviceService(settingsRepo, feedingRepo, petRepo, alertRepo, publisher, new ObjectMapper());
+        litterRepo = mock(LitterLogRepository.class);
+        when(litterRepo.findFirstByOrderByTimestampDesc()).thenReturn(Optional.empty());
+
+        service = new DeviceService(settingsRepo, feedingRepo, litterRepo, petRepo, alertRepo, publisher, new ObjectMapper());
     }
 
     private void telemetry(double weight, boolean feeding) throws Exception {
@@ -133,6 +138,48 @@ class DeviceServiceTest {
         water(80, false);
         assertThat(alertMessages()).anyMatch(m -> m.startsWith("Đã đổ thêm nước"));
         assertThat(publisher.sent).isEmpty();   // chỉ theo dõi, không gửi lệnh bơm nào
+    }
+
+    @Test
+    @DisplayName("Mèo đi vệ sinh -> ghi litter log cho bé của máy, đúng thời gian và thời lượng")
+    void litterVisitIsLogged() throws Exception {
+        service.handleLitter("{\"event\":\"visit\",\"durationSec\":95,\"agoSec\":120}");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(LitterLog.class);
+        verify(litterRepo).save(captor.capture());
+        LitterLog saved = captor.getValue();
+        assertThat(saved.getPetId()).isEqualTo(luna.getId());
+        assertThat(saved.getDurationSec()).isEqualTo(95);
+        assertThat(saved.getResult()).isEqualTo(LitterResult.NORMAL);
+        assertThat(saved.getTimestamp()).isBetween(java.time.Instant.now().minusSeconds(125),
+                java.time.Instant.now().minusSeconds(115));
+        assertThat(alertMessages()).anyMatch(m -> m.equals("Luna vừa đi vệ sinh (1 phút 35 giây trong khay)"));
+
+        var st = service.getState();
+        assertThat(st.getLastLitterVisitSec()).isEqualTo(95);
+        assertThat(st.getLastLitterVisitPetName()).isEqualTo("Luna");
+        assertThat(st.isWaterOnline()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Dọn cát xong -> lưu thời điểm dọn; sự kiện quá cũ bị bỏ qua")
+    void litterCleanedAndStaleEvents() throws Exception {
+        service.handleLitter("{\"event\":\"cleaned\",\"durationSec\":0,\"agoSec\":0}");
+        assertThat(service.getState().getLastLitterCleanAt()).isNotNull();
+
+        service.handleLitter("{\"event\":\"visit\",\"durationSec\":30,\"agoSec\":999999999}");
+        verify(litterRepo, never()).save(any());
+        assertThat(publisher.sent).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Trạng thái khay lấy từ gói mực nước, chỉ khi máy online")
+    void litterStateFromHeartbeat() throws Exception {
+        service.handleWater("{\"waterPercent\":50,\"waterCm\":4.0,\"lowWater\":false,\"sensorOk\":true,"
+                + "\"litterState\":\"cat_inside\",\"ip\":\"192.168.1.6\"}");
+        assertThat(service.getState().getLitterState()).isEqualTo("cat_inside");
+        assertThat(DeviceService.formatDuration(45)).isEqualTo("45 giây");
+        assertThat(DeviceService.formatDuration(120)).isEqualTo("2 phút");
     }
 
     @Test
