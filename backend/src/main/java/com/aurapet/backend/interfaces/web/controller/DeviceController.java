@@ -29,33 +29,36 @@ public class DeviceController {
 
     @GetMapping("/state")
     @Operation(summary = "Trạng thái thời gian thực (gọi 2 giây/lần)")
-    public ResponseEntity<ApiResponse<DeviceStateDto>> state() {
-        return ResponseEntity.ok(ApiResponse.ok(deviceService.getState(), "OK"));
+    public ResponseEntity<ApiResponse<DeviceStateDto>> state(@AuthenticationPrincipal CustomUserDetails user) {
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.getState(CurrentUser.of(user)), "OK"));
     }
 
     @PostMapping("/feed")
     @Operation(summary = "Cho ăn ngay")
-    public ResponseEntity<ApiResponse<DeviceStateDto>> feed(@Valid @RequestBody(required = false) FeedRequest request) {
+    public ResponseEntity<ApiResponse<DeviceStateDto>> feed(@Valid @RequestBody(required = false) FeedRequest request,
+                                                            @AuthenticationPrincipal CustomUserDetails user) {
         FeedRequest r = request != null ? request : new FeedRequest();
-        return ResponseEntity.ok(ApiResponse.ok(deviceService.feed(r.getGram(), r.getSource()), "Đã gửi lệnh cho ăn"));
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.feed(r.getGram(), r.getSource(), CurrentUser.of(user)),
+                "Đã gửi lệnh cho ăn"));
     }
 
     @PostMapping("/stop")
     @Operation(summary = "Dừng động cơ khẩn cấp")
-    public ResponseEntity<ApiResponse<DeviceStateDto>> stop() {
-        return ResponseEntity.ok(ApiResponse.ok(deviceService.stop(), "Đã gửi lệnh dừng"));
+    public ResponseEntity<ApiResponse<DeviceStateDto>> stop(@AuthenticationPrincipal CustomUserDetails user) {
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.stop(CurrentUser.of(user)), "Đã gửi lệnh dừng"));
     }
 
     @PostMapping("/tare")
     @Operation(summary = "Trừ bì cân về 0g (khay phải trống)")
-    public ResponseEntity<ApiResponse<DeviceStateDto>> tare() {
-        return ResponseEntity.ok(ApiResponse.ok(deviceService.tare(), "Đã gửi lệnh trừ bì"));
+    public ResponseEntity<ApiResponse<DeviceStateDto>> tare(@AuthenticationPrincipal CustomUserDetails user) {
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.tare(CurrentUser.of(user)), "Đã gửi lệnh trừ bì"));
     }
 
     @PutMapping("/settings")
     @Operation(summary = "Cập nhật cài đặt (khẩu phần, tự động, lịch hẹn giờ, mèo của máy)")
-    public ResponseEntity<ApiResponse<DeviceStateDto>> settings(@Valid @RequestBody UpdateDeviceSettingsRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(deviceService.updateSettings(request), "Đã lưu cài đặt"));
+    public ResponseEntity<ApiResponse<DeviceStateDto>> settings(@Valid @RequestBody UpdateDeviceSettingsRequest request,
+                                                                @AuthenticationPrincipal CustomUserDetails user) {
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.updateSettings(request, CurrentUser.of(user)), "Đã lưu cài đặt"));
     }
 
     @GetMapping("/feedings")

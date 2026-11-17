@@ -1,0 +1,7 @@
+# Raspberry Pi: chạy mô hình bằng ONNX Runtime, KHÔNG cần PyTorch/ultralytics
+# (PyTorch bản mới lỗi "Illegal instruction" trên Pi 4; ONNX Runtime nhẹ và nhanh hơn trên CPU ARM)
+# Mô hình .onnx xuất trên máy tính bằng export_onnx.py rồi chép sang Pi (scripts/copy_to_pi.ps1)
+onnxruntime>=1.17
+numpy
+opencv-python-headless
+paho-mqtt>=1.6

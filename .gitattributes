@@ -1,0 +1,3 @@
+# Script chạy trên Raspberry Pi / Linux phải giữ xuống dòng kiểu LF (CRLF làm bash báo lỗi)
+*.sh text eol=lf
+firmware/raspberry_pi/*.py text eol=lf

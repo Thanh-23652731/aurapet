@@ -104,3 +104,13 @@ __pycache__/
 .venv/
 firmware/raspberry_pi/*.pt
 firmware/raspberry_pi/*.env
+# Ảnh huấn luyện, file nén tải về và kết quả train (nặng, tạo lại được bằng script)
+firmware/raspberry_pi/dataset/
+firmware/raspberry_pi/.cache/
+firmware/raspberry_pi/runs/
+firmware/raspberry_pi/models/*.pt
+firmware/raspberry_pi/models/*.onnx
+firmware/raspberry_pi/*.onnx
+# Ảnh chụp thử của test_camera.py (có thể chứa hình trong nhà)
+firmware/raspberry_pi/test_snapshot.jpg
+firmware/raspberry_pi/test_detect.jpg

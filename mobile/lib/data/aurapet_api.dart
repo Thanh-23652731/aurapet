@@ -57,7 +57,8 @@ class AuraPetApi {
     if (id == null) {
       await client.post('/api/v1/pets', pet.toJson());
     } else {
-      await client.put('/api/v1/pets/$id', pet.toJson());
+      // Khi sửa: gửi 0 để xoá khẩu phần riêng (quay về khẩu phần chung)
+      await client.put('/api/v1/pets/$id', {...pet.toJson(), 'portionGram': pet.portionGram ?? 0});
     }
   }
 

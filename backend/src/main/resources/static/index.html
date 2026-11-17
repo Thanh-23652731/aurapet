@@ -52,11 +52,10 @@
     <form id="auth-form" class="stack" novalidate>
       <label class="field" data-only="register"><span>Họ tên</span><input name="name" autocomplete="name" maxlength="100"></label>
       <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" required></label>
-      <label class="field"><span>Mật khẩu</span><input name="password" type="password" autocomplete="current-password" required minlength="6"></label>
-      <p class="form-error" id="auth-error" role="alert"></p>
+      <label class="field"><span>Mật khẩu</span><input name="password" type="password" autocomplete="current-password" required minlength="6"></label>      <p class="form-error" id="auth-error" role="alert"></p>
       <button class="btn btn-primary btn-block" type="submit" id="auth-submit">Đăng nhập</button>
     </form>
-    <div class="demo-row" data-only="login">
+    <div class="demo-row" id="demo-row" hidden>
       <span>Dùng thử:</span>
       <button class="link" data-demo="admin">Tài khoản quản trị</button>
       <button class="link" data-demo="user">Tài khoản thường</button>
@@ -237,7 +236,7 @@
         <article class="panel dev-auto" aria-labelledby="auto-title">
           <h2 id="auto-title"><svg class="ico"><use href="#i-clock"/></svg>Tự động cho ăn</h2>
           <div class="switch-row">
-            <label for="auto-sw">Khi mèo đến gần<small>Chỉ nhả khi khay dưới 10 g, cách nhau ít nhất 1 phút</small></label>
+            <label for="auto-sw">Khi mèo đến gần<small>Camera nhận ra bé nào thì nhả khẩu phần của bé đó, mèo lạ thì không. Chỉ nhả khi khay dưới 10 g</small></label>
             <button class="switch" role="switch" aria-checked="false" id="auto-sw"></button>
           </div>
           <div class="switch-row">
@@ -315,7 +314,9 @@
       <div class="grid-2">
         <div class="panel stack">
           <h2>Thiết bị</h2>
-          <label class="field"><span>Bé được ghi nhật ký khi máy nhả hạt</span><select id="feeder-pet-select"></select></label>
+          <label class="field"><span>Bé mặc định (khi camera không nhận ra bé nào)</span><select id="feeder-pet-select"></select></label>
+          <p class="hint">Camera nhận ra bé nào thì nhả khẩu phần riêng và ghi nhật ký cho bé đó (đặt ở mục Thú cưng). Bé mặc định chỉ dùng cho lần cho ăn bấm tay, theo lịch hoặc khi camera chưa nhận ra.</p>
+          <p class="hint" id="feeder-pet-hint"></p>
           <p class="hint" id="device-info"></p>
         </div>
         <form class="panel stack" id="profile-form">
@@ -352,6 +353,7 @@
       <label class="field"><span>Giới tính</span><select name="gender"><option value="FEMALE">Cái</option><option value="MALE">Đực</option></select></label>
       <label class="field"><span>Triệt sản</span><select name="neutered"><option value="true">Đã triệt sản</option><option value="false">Chưa</option></select></label>
     </div>
+    <label class="field"><span>Khẩu phần khi camera nhận ra bé (g)</span><input name="portionGram" type="number" min="5" max="150" step="1" placeholder="Bỏ trống = dùng khẩu phần chung"></label>
     <label class="field"><span>Link ảnh (tuỳ chọn)</span><input name="imageUrl" type="url" maxlength="1024" placeholder="https://..."></label>
     <datalist id="breeds"><option>Mèo ta</option><option>Anh lông ngắn</option><option>Anh lông dài</option><option>Scottish Fold</option><option>Ba Tư</option><option>Maine Coon</option><option>Xiêm</option><option>Munchkin</option></datalist>
     <p class="form-error" id="pet-error" role="alert"></p>

@@ -88,6 +88,18 @@ class PetControllerTest {
 
     @Test
     @WithUserDetails("user@aurapet.com")
+    @DisplayName("Người dùng thường KHÔNG gán được mèo của người khác cho máy cho ăn")
+    void userCannotAssignStrangersPetToFeeder() throws Exception {
+        Pet pet = adminPet();
+        mockMvc.perform(put("/api/v1/device/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("feederPetId", pet.getId().toString()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @WithUserDetails("user@aurapet.com")
     @DisplayName("Danh sách của người dùng thường chỉ gồm mèo của họ")
     void userSeesOnlyOwnPets() throws Exception {
         User user = userRepository.findByEmail("user@aurapet.com").orElseThrow();

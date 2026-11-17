@@ -3,7 +3,10 @@ package com.aurapet.backend.application.service;
 import com.aurapet.backend.application.dto.*;
 import com.aurapet.backend.domain.model.Gender;
 import com.aurapet.backend.domain.model.Pet;
+import com.aurapet.backend.domain.model.WeightRecord;
 import com.aurapet.backend.domain.repository.PetRepository;
+import com.aurapet.backend.domain.repository.WeightRecordRepository;
+import com.aurapet.backend.interfaces.web.exception.BadRequestException;
 import com.aurapet.backend.interfaces.web.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -14,6 +17,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +30,7 @@ import java.util.UUID;
 public class PetService {
 
     private final PetRepository petRepository;
+    private final WeightRecordRepository weightRecordRepository;
 
     @Transactional(readOnly = true)
     public PetPageData getPets(int page, int size, String search, String breed, String genderStr,
@@ -73,8 +78,11 @@ public class PetService {
                 .neutered(request.getNeutered())
                 .weight(request.getWeight())
                 .imageUrl(blankToNull(request.getImageUrl()))
+                .portionGram(request.getPortionGram())
                 .build();
-        return mapToDto(petRepository.save(pet));
+        Pet saved = petRepository.save(pet);
+        recordWeight(saved); // lần cân đầu tiên -> có mốc để so sánh và vẽ biểu đồ
+        return mapToDto(saved);
     }
 
     @Transactional
@@ -85,9 +93,28 @@ public class PetService {
         if (request.getAge() != null) pet.setAge(request.getAge());
         if (request.getGender() != null) pet.setGender(request.getGender());
         if (request.getNeutered() != null) pet.setNeutered(request.getNeutered());
+        boolean weightChanged = request.getWeight() != null && !request.getWeight().equals(pet.getWeight());
         if (request.getWeight() != null) pet.setWeight(request.getWeight());
         if (request.getImageUrl() != null) pet.setImageUrl(blankToNull(request.getImageUrl()));
-        return mapToDto(petRepository.save(pet));
+        if (request.getPortionGram() != null) {
+            int g = request.getPortionGram();
+            if (g != 0 && g < FeederService.MIN_GRAM) {
+                throw new BadRequestException("Khẩu phần tối thiểu " + FeederService.MIN_GRAM + " g (nhập 0 để dùng khẩu phần chung)");
+            }
+            pet.setPortionGram(g == 0 ? null : g);
+        }
+        Pet saved = petRepository.save(pet);
+        if (weightChanged) recordWeight(saved); // sửa cân nặng = 1 lần cân mới trong lịch sử
+        return mapToDto(saved);
+    }
+
+    private void recordWeight(Pet pet) {
+        if (pet.getWeight() == null) return;
+        weightRecordRepository.save(WeightRecord.builder()
+                .petId(pet.getId())
+                .weight(pet.getWeight())
+                .recordedAt(Instant.now())
+                .build());
     }
 
     @Transactional
@@ -131,6 +158,7 @@ public class PetService {
                 .neutered(pet.getNeutered())
                 .weight(pet.getWeight())
                 .imageUrl(pet.getImageUrl())
+                .portionGram(pet.getPortionGram())
                 .build();
     }
 

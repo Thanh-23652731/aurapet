@@ -248,14 +248,27 @@ input:disabled { background: var(--surface-2); color: var(--ink-2); }
 .ps-metrics .up { color: var(--warn); }
 
 /* ---------- Lưới tổng quan ---------- */
-/* Máy tính: 3 cột độc lập (máy cho ăn + camera | nước + khay | tự động + hoạt động) */
+/* Máy tính: hàng 1 = Máy cho ăn | Camera (xem camera ngay khi bấm cho ăn),
+   hàng 2 = Tự động | Bình nước | Khay vệ sinh | Hoạt động */
 .dash {
-  display: grid; gap: var(--gap);
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
+  display: grid; gap: var(--gap); align-items: start;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-areas: "feeder feeder camera camera" "auto water litter activity";
 }
-.dash-col { display: grid; gap: var(--gap); align-content: start; min-width: 0; }
-.dash .panel { display: grid; gap: 12px; align-content: start; }
+.dash-col { display: contents; }
+.dash .panel { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.dev-feeder { grid-area: feeder; }
+.dev-camera { grid-area: camera; }
+.dev-water { grid-area: water; }
+.dev-litter { grid-area: litter; }
+.dev-auto { grid-area: auto; }
+.dev-activity { grid-area: activity; }
+@media (min-width: 1024px) {
+  /* Máy cho ăn và camera cao bằng nhau; khung hình giãn theo chiều cao còn lại */
+  .dash .dev-feeder, .dash .dev-camera { align-self: stretch; }
+  .dash .dev-camera { grid-template-rows: auto minmax(0, 1fr) auto; align-content: stretch; }
+  .dash .dev-camera .cam-frame { aspect-ratio: auto; min-height: 260px; }
+}
 
 /* Camera trực tiếp */
 .cam-frame {
@@ -306,7 +319,7 @@ input:disabled { background: var(--surface-2); color: var(--ink-2); }
 .kv .ok-t { color: var(--ok); }
 
 /* Máy cho ăn */
-.feeder-body { display: grid; grid-template-columns: 136px 1fr; gap: 18px; align-items: center; }
+.feeder-body { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 18px; align-items: center; }
 .bowl-wrap { display: grid; justify-items: center; gap: 2px; }
 .bowl { width: 100%; height: auto; overflow: visible; }
 .bowl-empty { fill: var(--surface-2); }
@@ -419,6 +432,7 @@ input:disabled { background: var(--surface-2); color: var(--ink-2); }
 .score { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 18px; border: 4px solid var(--ok); }
 .score.mid { border-color: var(--warn-dot); }
 .score.low { border-color: var(--bad); }
+.score.none { border-color: var(--line); color: var(--ink-3); }
 .notes { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; }
 .spark { width: 100%; height: 80px; }
 .spark path.line { fill: none; stroke: var(--primary); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
@@ -428,6 +442,13 @@ input:disabled { background: var(--surface-2); color: var(--ink-2); }
 .mini-stats b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
 .mini-stats span { font-size: 12px; color: var(--ink-2); }
 .pd-sec { display: grid; gap: 6px; }
+.pd-portion {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 10px 12px; border-radius: var(--r-sm); background: var(--food-soft);
+}
+.pd-portion > .ico { width: 20px; height: 20px; color: var(--food); }
+.pd-portion b { display: block; font-size: 14px; }
+.pd-portion small { color: var(--ink-2); font-size: 12px; }
 
 /* ---------- Lịch sử ---------- */
 .table-wrap { overflow: auto; max-height: 60vh; }
@@ -463,21 +484,23 @@ input:disabled { background: var(--surface-2); color: var(--ink-2); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 
 /* ---------- Máy tính bảng ---------- */
+/* Khối máy cho ăn có thể hẹp (đứng cạnh camera): cho giá trị xuống dòng thay vì tràn ra ngoài */
+.dev-feeder .kv div { align-items: flex-start; }
+.dev-feeder .kv dd { white-space: normal; flex-wrap: wrap; row-gap: 0; }
+.dev-feeder .kv dd small { white-space: normal; text-align: right; }
+@media (max-width: 1440px) {
+  .dev-feeder .feeder-body { grid-template-columns: 112px minmax(0, 1fr); gap: 12px; }
+}
 @media (max-width: 1280px) {
-  /* Bỏ cột, xếp lại thẻ theo vùng */
-  .dash-col { display: contents; }
+  /* Vẫn để camera cạnh máy cho ăn; các thẻ khác xếp 2 cột */
   .dash {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: "feeder feeder" "camera auto" "water litter" "activity activity";
+    grid-template-areas: "feeder camera" "auto water" "litter activity";
   }
-  .dev-feeder { grid-area: feeder; }
-  .dev-camera { grid-area: camera; }
-  .dev-water { grid-area: water; }
-  .dev-litter { grid-area: litter; }
-  .dev-auto { grid-area: auto; }
-  .dev-activity { grid-area: activity; }
 }
-@media (min-width: 901px) and (max-width: 1280px) {
+@media (min-width: 761px) and (max-width: 1023px) {
+  /* Quá hẹp để đặt cạnh nhau: camera nằm ngay dưới máy cho ăn */
+  .dash { grid-template-areas: "feeder feeder" "camera auto" "water litter" "activity activity"; }
   .dash .dev-feeder { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; }
   .dev-feeder .dev-head, .dev-feeder .dev-foot { grid-column: 1 / -1; }
   .dev-feeder .feeder-body { grid-column: 1; grid-row: 2 / span 3; }

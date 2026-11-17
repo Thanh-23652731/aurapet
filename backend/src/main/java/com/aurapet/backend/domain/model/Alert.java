@@ -32,4 +32,7 @@ public class Alert {
 
     @Column(nullable = false)
     private Instant createdAt;
+
+    /** Bé mà cảnh báo nói tới; null = cảnh báo chung của thiết bị (ai cũng xem được). */
+    private UUID petId;
 }

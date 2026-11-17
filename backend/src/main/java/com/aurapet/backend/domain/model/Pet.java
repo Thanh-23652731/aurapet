@@ -46,6 +46,9 @@ public class Pet {
     @Column(length = 1024)
     private String imageUrl;
 
+    /** Khẩu phần (gram) nhả cho bé mỗi khi camera nhận ra bé; null = dùng khẩu phần chung của máy. */
+    private Integer portionGram;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

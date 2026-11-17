@@ -74,6 +74,7 @@ class AuthControllerTest {
     void pingIsPublic() throws Exception {
         mockMvc.perform(get("/api/v1/ping"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.app").value("aurapet"));
+                .andExpect(jsonPath("$.data.app").value("aurapet"))
+                .andExpect(jsonPath("$.data.demoData").value(true));
     }
 }

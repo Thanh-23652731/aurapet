@@ -31,7 +31,7 @@ Máy cho ăn ESP32 + backend Spring Boot + web dashboard + app Flutter. Mọi n�
 3. Chạy `start_aurapet.bat` (tự build lại khi mã nguồn thay đổi) → mở `http://localhost:8080`.
 4. App: `cd mobile && flutter pub get && flutter run`. Trên màn hình đăng nhập nhập địa chỉ máy chủ (hoặc bấm nút tìm trong Wi-Fi).
 
-Tài khoản mẫu: `admin@aurapet.com / Admin@123`, `user@aurapet.com / User@123`.
+**Tài khoản mẫu** (`admin@aurapet.com / Admin@123`, `user@aurapet.com / User@123`) chỉ được tạo khi đặt `AURAPET_DEMO_DATA=true` và CSDL còn trống. Chỉ dùng khi chạy thử trên máy mình, **không bật trên máy chủ public**.
 
 Triển khai cloud (Supabase, Render, Docker, GitHub Pages): [docs/HUONG_DAN_TRIEN_KHAI.md](docs/HUONG_DAN_TRIEN_KHAI.md).
 

@@ -31,4 +31,9 @@ public class UpdatePetRequest {
 
     @Size(max = 1024)
     private String imageUrl;
+
+    /** Khẩu phần riêng (5–150 g). Gửi 0 để bỏ khẩu phần riêng (quay về khẩu phần chung). */
+    @Min(value = 0, message = "Khẩu phần không được âm")
+    @Max(value = 150, message = "Khẩu phần tối đa 150 g")
+    private Integer portionGram;
 }

@@ -25,6 +25,14 @@
 #define MQTT_USER ""
 #define MQTT_PASS ""
 
+// Khi MQTT_USE_TLS 1: dán chứng chỉ CA của broker (EMQX Serverless: tải trong trang Overview)
+// để ESP32 xác thực đúng broker. Không đặt thì vẫn mã hoá nhưng không xác thực (setInsecure).
+// #define MQTT_CA_CERT R"EOF(
+// -----BEGIN CERTIFICATE-----
+// ...
+// -----END CERTIFICATE-----
+// )EOF"
+
 // ---- Chuỗi bí mật của topic ----
 // PHẢI giống hệt MQTT_TOPIC_PREFIX trong file .env của backend.
 // Dùng chuỗi ngẫu nhiên để người lạ không đoán được topic điều khiển máy.

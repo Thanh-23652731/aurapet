@@ -79,14 +79,21 @@ class ApiClient {
   }
 
   /// Kiểm tra một địa chỉ có phải máy chủ AuraPet không.
-  Future<bool> ping(String url, {Duration timeout = const Duration(seconds: 3)}) async {
+  Future<bool> ping(String url, {Duration timeout = const Duration(seconds: 3)}) async =>
+      await serverInfo(url, timeout: timeout) != null;
+
+  /// Thông tin công khai của máy chủ (app, version, demoData); null nếu không phải AuraPet.
+  Future<Map<String, dynamic>?> serverInfo(String url, {Duration timeout = const Duration(seconds: 3)}) async {
     try {
       final res = await Dio(BaseOptions(connectTimeout: timeout, receiveTimeout: timeout))
           .get<dynamic>('${normalize(url)}/api/v1/ping');
       final data = res.data;
-      return data is Map && data['data'] is Map && data['data']['app'] == 'aurapet';
+      if (data is Map && data['data'] is Map && data['data']['app'] == 'aurapet') {
+        return Map<String, dynamic>.from(data['data'] as Map);
+      }
+      return null;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 

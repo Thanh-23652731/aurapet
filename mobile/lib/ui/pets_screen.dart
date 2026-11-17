@@ -12,7 +12,7 @@ class PetsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final view = ref.watch(petsProvider);
-    final feederId = ref.watch(deviceProvider.select((v) => v.device?.settings.feederPetId));
+    final commonGram = ref.watch(deviceProvider.select((v) => v.device?.settings.targetGram)) ?? 30;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -53,14 +53,15 @@ class PetsScreen extends ConsumerWidget {
                       leading: PetAvatar(p),
                       title: Row(children: [
                         Flexible(child: Text(p.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
-                        if (p.id == feederId) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-                            decoration: BoxDecoration(color: AppColors.leaf.withValues(alpha: .15), borderRadius: BorderRadius.circular(99)),
-                            child: const Text('Máy cho ăn', style: TextStyle(fontSize: 11, color: AppColors.leaf, fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                          decoration: BoxDecoration(color: AppColors.leaf.withValues(alpha: .15), borderRadius: BorderRadius.circular(99)),
+                          child: Text(
+                            p.portionGram != null ? '${p.portionGram} g/lần' : '$commonGram g/lần (chung)',
+                            style: const TextStyle(fontSize: 11, color: AppColors.leaf, fontWeight: FontWeight.w600),
                           ),
-                        ],
+                        ),
                       ]),
                       subtitle: Text('${p.breed}, ${p.age} tuổi, ${p.weight.toStringAsFixed(2)} kg, ${p.isMale ? 'đực' : 'cái'}'),
                       trailing: PopupMenuButton<String>(
@@ -109,7 +110,8 @@ class PetsScreen extends ConsumerWidget {
 }
 
 /// Form thêm / sửa thú cưng.
-Future<void> showPetForm(BuildContext context, WidgetRef ref, {Pet? pet}) async {
+/// Trả về true nếu đã lưu.
+Future<bool> showPetForm(BuildContext context, WidgetRef ref, {Pet? pet}) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -120,6 +122,7 @@ Future<void> showPetForm(BuildContext context, WidgetRef ref, {Pet? pet}) async 
     await ref.read(petsProvider.notifier).reload();
     if (context.mounted) showMessage(context, pet == null ? 'Đã thêm thú cưng' : 'Đã lưu thay đổi');
   }
+  return saved == true;
 }
 
 class _PetForm extends ConsumerStatefulWidget {
@@ -137,6 +140,7 @@ class _PetFormState extends ConsumerState<_PetForm> {
   late final _age = TextEditingController(text: widget.pet?.age.toString());
   late final _weight = TextEditingController(text: widget.pet?.weight.toString());
   late final _image = TextEditingController(text: widget.pet?.imageUrl);
+  late final _portion = TextEditingController(text: widget.pet?.portionGram?.toString());
   late String _gender = widget.pet?.gender ?? 'FEMALE';
   late bool _neutered = widget.pet?.neutered ?? true;
   bool _busy = false;
@@ -144,7 +148,7 @@ class _PetFormState extends ConsumerState<_PetForm> {
 
   @override
   void dispose() {
-    for (final c in [_name, _breed, _age, _weight, _image]) {
+    for (final c in [_name, _breed, _age, _weight, _image, _portion]) {
       c.dispose();
     }
     super.dispose();
@@ -166,6 +170,7 @@ class _PetFormState extends ConsumerState<_PetForm> {
       neutered: _neutered,
       weight: double.parse(_weight.text.trim().replaceAll(',', '.')),
       imageUrl: _image.text.trim().isEmpty ? null : _image.text.trim(),
+      portionGram: int.tryParse(_portion.text.trim()),
     );
     try {
       await ref.read(apiProvider).savePet(p, id: widget.pet?.id);
@@ -237,6 +242,21 @@ class _PetFormState extends ConsumerState<_PetForm> {
               value: _neutered,
               onChanged: (v) => setState(() => _neutered = v),
             ),
+            TextFormField(
+              controller: _portion,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Khẩu phần khi camera nhận ra bé (g)',
+                helperText: 'Bỏ trống = dùng khẩu phần chung của máy',
+              ),
+              validator: (v) {
+                final t = (v ?? '').trim();
+                if (t.isEmpty) return null;
+                final n = int.tryParse(t);
+                return (n == null || n < 5 || n > 150) ? 'Từ 5 đến 150 g' : null;
+              },
+            ),
+            gap,
             TextFormField(controller: _image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Link ảnh (tuỳ chọn)')),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: const TextStyle(color: AppColors.stop))),
             const SizedBox(height: 14),
@@ -276,7 +296,7 @@ class _PetDetailScreenState extends ConsumerState<PetDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final p = widget.pet;
-    final feederId = ref.watch(deviceProvider.select((v) => v.device?.settings.feederPetId));
+    final commonGram = ref.watch(deviceProvider.select((v) => v.device?.settings.targetGram)) ?? 30;
     return Scaffold(
       appBar: AppBar(title: Text(p.name)),
       body: FutureBuilder(
@@ -285,7 +305,13 @@ class _PetDetailScreenState extends ConsumerState<PetDetailScreen> {
           if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
           if (snap.hasError) return Center(child: Text('${snap.error}'));
           final (h, daily, weights) = snap.data!;
-          final scoreColor = h.healthScore >= 90 ? AppColors.leaf : h.healthScore >= 75 ? AppColors.warn : AppColors.stop;
+          final scoreColor = !h.hasFeedingData
+              ? context.muted
+              : h.healthScore >= 90
+                  ? AppColors.leaf
+                  : h.healthScore >= 75
+                      ? AppColors.warn
+                      : AppColors.stop;
           return ListView(padding: const EdgeInsets.all(12), children: [
             Panel(
               child: Row(children: [
@@ -303,7 +329,8 @@ class _PetDetailScreenState extends ConsumerState<PetDetailScreen> {
                   height: 60,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: scoreColor, width: 5)),
-                  child: Text('${h.healthScore}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+                  child: Text(h.hasFeedingData ? '${h.healthScore}' : '–',
+                      style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
                 ),
               ]),
             ),
@@ -313,7 +340,9 @@ class _PetDetailScreenState extends ConsumerState<PetDetailScreen> {
               const SizedBox(width: 8),
               Expanded(child: Fact('Vệ sinh/tuần', '${h.weeklyLitterVisits} lần')),
               const SizedBox(width: 8),
-              Expanded(child: Fact('So với lần cân trước', '${h.weightChangeKg > 0 ? '+' : ''}${h.weightChangeKg} kg')),
+              Expanded(
+                  child: Fact('So với lần cân trước',
+                      h.weightCompared ? '${h.weightChangeKg > 0 ? '+' : ''}${h.weightChangeKg} kg' : '–')),
             ]),
             const SizedBox(height: 10),
             Panel(
@@ -341,15 +370,30 @@ class _PetDetailScreenState extends ConsumerState<PetDetailScreen> {
               ]),
             ),
             const SizedBox(height: 12),
-            FilledButton.tonalIcon(
-              onPressed: p.id == feederId
-                  ? null
-                  : () async {
-                      final err = await ref.read(deviceProvider.notifier).settings({'feederPetId': p.id});
-                      if (context.mounted) showMessage(context, err ?? 'Đã gán ${p.name} cho máy cho ăn', error: err != null);
-                    },
-              icon: const Icon(Icons.rice_bowl_outlined),
-              label: Text(p.id == feederId ? 'Bé đang dùng máy cho ăn' : 'Gán bé cho máy cho ăn'),
+            Panel(
+              child: Row(children: [
+                const Icon(Icons.rice_bowl_outlined, color: AppColors.leaf),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(
+                      'Camera nhận ra ${p.name} → nhả '
+                      '${p.portionGram != null ? '${p.portionGram} g' : '$commonGram g (khẩu phần chung)'}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text('Chỉ nhả khi bật "Khi mèo đến gần" và khay dưới 10 g',
+                        style: TextStyle(color: context.muted, fontSize: 12)),
+                  ]),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final saved = await showPetForm(context, ref, pet: p);
+                    // Đã đổi dữ liệu bé -> quay lại danh sách (đã tải lại) để thấy khẩu phần mới
+                    if (saved && context.mounted) Navigator.of(context).pop();
+                  },
+                  child: const Text('Đổi'),
+                ),
+              ]),
             ),
           ]);
         },

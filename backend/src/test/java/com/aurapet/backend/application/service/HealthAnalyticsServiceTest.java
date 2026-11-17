@@ -48,7 +48,7 @@ class HealthAnalyticsServiceTest {
     }
 
     @Test
-    @DisplayName("Không có dữ liệu ăn -> có ghi chú nhắc và điểm giảm")
+    @DisplayName("Không có dữ liệu ăn -> báo chưa đủ dữ liệu thay vì chấm điểm")
     void summaryWithoutData() {
         UUID petId = UUID.randomUUID();
         when(petService.requireAccessible(petId, actor)).thenReturn(luna(petId));
@@ -61,7 +61,9 @@ class HealthAnalyticsServiceTest {
         assertThat(s.getPetName()).isEqualTo("Luna");
         assertThat(s.getExpectedDailyFoodGram()).isEqualTo(60);
         assertThat(s.getHealthScore()).isEqualTo(85);
-        assertThat(s.getStatus()).isEqualTo("Cần theo dõi");
+        assertThat(s.getStatus()).isEqualTo("Chưa đủ dữ liệu");
+        assertThat(s.isHasFeedingData()).isFalse();
+        assertThat(s.isWeightCompared()).isFalse();
         assertThat(s.getNotes()).anyMatch(n -> n.contains("Chưa có dữ liệu"));
     }
 

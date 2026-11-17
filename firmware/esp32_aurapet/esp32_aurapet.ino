@@ -1,13 +1,19 @@
 /*
  * =============================================================================
- *  AURAPET - ESP32 MÁY CHO ĂN THÔNG MINH (bản 2.0)
+ *  AURAPET - ESP32 MÁY CHO ĂN THÔNG MINH (bản 2.1)
  * =============================================================================
  *  - Nhận lệnh từ Web/App qua MQTT (backend chuyển tiếp), gửi trạng thái 2s/lần
+ *    (1s/lần khi đang nhả hạt)
  *  - Cân HX711 đo đúng số gram nhả ra, động cơ bước có gia tốc
  *  - Tự động cho ăn khi phát hiện mèo VÀ khay < 10g (đúng lưu đồ Hình 6)
  *  - Bình nước dùng bơm tuần hoàn chạy liên tục; mực nước do ESP32 máy dọn cát
  *    (firmware/esp32_litter_water) đo và báo về web/app - máy này KHÔNG điều khiển bơm
  *  - Topic bí mật + Last Will "offline" để web biết máy mất kết nối ngay
+ *
+ *  CÁCH CHẠY (bản 2.1):
+ *    - Callback MQTT chỉ GHI NHẬN lệnh (đặt cờ), không quay động cơ trong callback.
+ *    - Nhả hạt là một "state machine" chạy trong loop(): mỗi vòng loop quay 1 đoạn
+ *      ngắn rồi đọc cân, nên MQTT, nút bấm, LCD vẫn chạy trong lúc nhả hạt.
  *
  *  ĐỔI WI-FI KHÔNG CẦN NẠP LẠI CODE:
  *    - Nếu không vào được Wi-Fi đã lưu, máy tự phát Wi-Fi "AuraPet-Setup"
@@ -20,6 +26,15 @@
  *    HX711 (Bogdan Necula), LiquidCrystal I2C (Frank de Brabander)
  *
  *  Cấu hình Wi-Fi/MQTT nằm trong secrets.h (copy từ secrets.example.h).
+ *
+ *  Lệnh nhận từ backend (PREFIX/command):
+ *    {"action":"FEED","gram":30,"source":"Web"}   cho ăn ngay (gram chỉ dùng cho lần này)
+ *    {"action":"STOP"}                            dừng động cơ (chỉ khi đang nhả)
+ *    {"action":"TARE"}                            trừ bì cân về 0 g
+ *    {"action":"SET_TARGET","gram":40}            đổi khẩu phần mặc định
+ *    {"action":"AUTO","enabled":true,"sensor":true}  bật/tắt tự cho ăn khi mèo đến;
+ *                                                 sensor=false: camera AI đang chạy, máy không tự nhả
+ *                                                 theo cảm biến mà chờ backend gửi FEED đúng khẩu phần của bé
  * =============================================================================
  */
 
@@ -59,7 +74,7 @@
 // 2. THÔNG SỐ VẬN HÀNH
 // =============================================================================
 float CALIB_FACTOR = 420.0;       // hệ số hiệu chuẩn cân
-float TARGET_GRAM = 30.0;         // khẩu phần (backend đồng bộ lại khi kết nối)
+float TARGET_GRAM = 30.0;         // khẩu phần mặc định (backend đồng bộ lại khi kết nối)
 const float OVERSHOOT_GRAM = 2.0; // dừng sớm bù quán tính hạt rơi
 const float EMPTY_BOWL_GRAM = 10.0; // khay < 10g mới được tự cho ăn
 const float MIN_GRAM = 5.0, MAX_GRAM = 150.0;
@@ -70,22 +85,28 @@ const int STEPS_PER_REV = 3200; // TMC2209/A4988 1/16 bước
 const int DELAY_START_US = 500;
 const int DELAY_MIN_US = 250;
 const int RAMP_STEPS = 960;
-const int CHUNK_STEPS = 800; // số xung giữa 2 lần đọc cân
+const int CHUNK_STEPS = 800;          // số xung mỗi vòng loop() trước khi đọc cân
+const int MQTT_POLL_STEPS = 400;      // giữa đoạn quay vẫn nhận lệnh STOP
 const unsigned long FEED_TIMEOUT = 20000;
+const unsigned long SETTLE_MS = 300;  // chờ hạt rơi hết rồi mới cân lần cuối
 
 const float FULL_DIST_CM = 3.0;   // khoảng cách cảm biến siêu âm khi thùng đầy
 const float EMPTY_DIST_CM = 18.0; // khi thùng rỗng
 const float LOW_LEVEL_CM = 15.0;  // > 15cm: cảnh báo sắp hết hạt
+const float LOW_HYSTERESIS_CM = 2.0;     // hết báo khi < 13cm, tránh nhấp nháy quanh ngưỡng
+const unsigned long DIST_HOLD_MS = 5000; // siêu âm mất tiếng vọng thoáng qua thì giữ số cũ
 const bool SENSOR_ACTIVE_LOW = true;
 const int STABLE_COUNT = 3;
-const unsigned long AUTO_COOLDOWN = 60000; // tối thiểu 60s giữa 2 lần tự cho ăn
+const unsigned long AUTO_COOLDOWN = 60000;       // tối thiểu 60s giữa 2 lần tự cho ăn
+const unsigned long FEED_CMD_DEDUP_MS = 3000;    // bỏ lệnh FEED lặp lại trong 3s (bấm 2 lần)
 const unsigned long TELEMETRY_INTERVAL = 2000;
+const unsigned long FEED_TELEMETRY_INTERVAL = 1000;
 
 // =============================================================================
 // 3. MQTT
 // =============================================================================
 #if MQTT_USE_TLS
-WiFiClientSecure netClient; // dùng setCACert() nếu muốn xác thực chứng chỉ broker
+WiFiClientSecure netClient;
 #else
 WiFiClient netClient;
 #endif
@@ -101,16 +122,47 @@ HX711 scale;
 bool scaleOk = false;
 
 bool autoMode = false;
+// false = camera AI đang chạy: backend nhận ra từng bé rồi gửi lệnh FEED đúng khẩu phần của bé,
+// nên máy KHÔNG tự nhả khi cảm biến thấy mèo (tránh nhả khẩu phần chung trước khi camera nhận ra bé)
+bool sensorFeed = true;
 bool petPresent = false;
 int sameCount = 0;
 float weight = 0.0;
-float currentDist = -1.0;
-bool isFeedingNow = false;
-volatile bool stopRequested = false;
+float currentDist = -1.0; // khoảng cách hợp lệ gần nhất (-1 = không đo được)
+float lastGoodDist = -1.0;
+unsigned long lastGoodDistAt = 0;
+bool lowFood = false;
 int feedCount = 0;
 unsigned long lastAuto = 0;
 unsigned long lastTelemetry = 0, lastLcd = 0, lastPrint = 0;
 String statusMsg = "San sang";
+
+// ---- Lệnh MQTT đã ghi nhận, loop() sẽ thực hiện ----
+volatile bool stopRequested = false;
+bool pendingFeed = false;
+float pendingFeedGram = 0;
+String pendingFeedSource;
+bool pendingTare = false;
+bool telemetryDue = false;
+unsigned long lastFeedCmdAt = 0;
+
+// ---- Lượt nhả hạt hiện tại (state machine) ----
+enum FeedPhase : uint8_t { FEED_IDLE, FEED_RUNNING, FEED_SETTLING };
+
+struct FeedJob {
+  FeedPhase phase = FEED_IDLE;
+  float gram = 0;
+  float startW = 0;
+  float goal = 0;
+  String source;
+  unsigned long startedAt = 0;
+  unsigned long settleAt = 0;
+  long steps = 0;
+  const char *result = "";
+};
+FeedJob job;
+
+bool isFeedingNow() { return job.phase != FEED_IDLE; }
 
 // =============================================================================
 // 5. TIỆN ÍCH PHẦN CỨNG
@@ -186,13 +238,23 @@ void doTare() {
   }
 }
 
+// Đọc siêu âm, giữ số hợp lệ gần nhất và tính "sắp hết hạt" có độ trễ
+void updateFoodLevel() {
+  float d = readDistanceCm();
+  if (d > 0) {
+    lastGoodDist = d;
+    lastGoodDistAt = millis();
+  }
+  currentDist = (lastGoodDist > 0 && millis() - lastGoodDistAt < DIST_HOLD_MS) ? lastGoodDist : -1;
+  if (currentDist > LOW_LEVEL_CM) lowFood = true;
+  else if (currentDist > 0 && currentDist < LOW_LEVEL_CM - LOW_HYSTERESIS_CM) lowFood = false;
+}
+
 int foodLevelPercent() {
-  if (currentDist <= 0) return -1;
+  if (currentDist <= 0) return -1; // không đo được -> web hiện "Không rõ"
   float p = (EMPTY_DIST_CM - currentDist) * 100.0 / (EMPTY_DIST_CM - FULL_DIST_CM);
   return (int)constrain(p, 0, 100);
 }
-
-bool lowFood() { return currentDist > LOW_LEVEL_CM; }
 
 bool updateSensor(int raw) {
   bool now = (raw == LOW) == SENSOR_ACTIVE_LOW;
@@ -209,32 +271,42 @@ bool updateSensor(int raw) {
 }
 
 void updateLeds() {
-  digitalWrite(LED_RED, lowFood() ? HIGH : LOW);
-  digitalWrite(LED_GREEN, lowFood() ? LOW : HIGH);
+  digitalWrite(LED_RED, lowFood ? HIGH : LOW);
+  digitalWrite(LED_GREEN, lowFood ? LOW : HIGH);
 }
 
 void showLcd() {
-  String l0 = String(autoMode ? "TU DONG " : "THU CONG ") + String(TARGET_GRAM, 0) + "g";
+  if (isFeedingNow()) {
+    lcdLine(0, "Dang cho an...");
+    lcdLine(1, String(max(0.0f, weight - job.startW), 0) + "/" + String(job.gram, 0) + "g");
+    return;
+  }
+  String l0 = String(!autoMode ? "THU CONG " : sensorFeed ? "TU DONG " : "CAMERA ") + String(TARGET_GRAM, 0) + "g";
   l0 += mqtt.connected() ? " *" : " -";
-  String l1 = "Khay:" + String(weight, 0) + "g " + (lowFood() ? "HET HAT" : "Hat OK");
+  String l1 = "Khay:" + String(weight, 0) + "g " + (lowFood ? "HET HAT" : "Hat OK");
   lcdLine(0, l0);
   lcdLine(1, l1);
 }
+
+float clampGram(float g) { return constrain(g, MIN_GRAM, MAX_GRAM); }
 
 // =============================================================================
 // 6. MQTT: GỬI DỮ LIỆU
 // =============================================================================
 void publishTelemetry() {
+  telemetryDue = false;
+  lastTelemetry = millis();
   if (!mqtt.connected()) return;
   JsonDocument doc;
   doc["weight"] = round(weight * 10) / 10.0;
   doc["target"] = TARGET_GRAM;
   doc["dist"] = round(currentDist * 10) / 10.0;
   doc["foodLevelPercent"] = foodLevelPercent();
-  doc["lowFood"] = lowFood();
+  doc["lowFood"] = lowFood;
   doc["petPresent"] = petPresent;
   doc["autoMode"] = autoMode;
-  doc["isFeeding"] = isFeedingNow;
+  doc["sensorFeed"] = sensorFeed;
+  doc["isFeeding"] = isFeedingNow();
   doc["feedCount"] = feedCount;
   doc["ip"] = WiFi.localIP().toString();
   doc["rssi"] = WiFi.RSSI();
@@ -244,7 +316,6 @@ void publishTelemetry() {
   char buf[640];
   serializeJson(doc, buf, sizeof(buf));
   mqtt.publish(tTelemetry.c_str(), buf);
-  lastTelemetry = millis();
 }
 
 void publishFeedLog(float added, float finalW, const char *source, const char *result) {
@@ -261,74 +332,87 @@ void publishFeedLog(float added, float finalW, const char *source, const char *r
 }
 
 // =============================================================================
-// 7. CHO ĂN
+// 7. CHO ĂN (state machine: IDLE -> RUNNING -> SETTLING -> IDLE)
 // =============================================================================
-void feed(const char *source) {
-  if (isFeedingNow) return;
-  isFeedingNow = true;
+// Bắt đầu 1 lượt nhả hạt. Trả về false nếu máy đang bận.
+bool startFeed(const String &source, float gram) {
+  if (isFeedingNow()) return false;
+  job.gram = clampGram(gram);
+  job.source = source;
+  job.startW = readWeight(3);
+  job.goal = job.startW + job.gram - OVERSHOOT_GRAM;
+  job.steps = 0;
+  job.result = "";
+  job.startedAt = millis();
+  job.phase = FEED_RUNNING;
   stopRequested = false;
   feedCount++;
-  float startW = readWeight(3);
-  float goal = startW + TARGET_GRAM - OVERSHOOT_GRAM;
-  logMsg("Dang cho an " + String(TARGET_GRAM, 0) + "g (" + source + ")");
-  lcdLine(0, "Dang cho an...");
-  lcdLine(1, "Muc tieu " + String(TARGET_GRAM, 0) + "g");
-  publishTelemetry(); // báo web "đang nhả hạt" ngay lập tức
 
+  logMsg("Dang cho an " + String(job.gram, 0) + "g (" + source + ")");
+  showLcd();
   digitalWrite(EN_PIN, LOW);
   digitalWrite(DIR_PIN, HIGH);
   delay(15);
+  publishTelemetry(); // báo web "đang nhả hạt" ngay lập tức
+  return true;
+}
 
-  unsigned long t0 = millis(), lastPub = millis();
-  long stepCount = 0;
-  bool stopped = false, reached = false;
+// Tắt động cơ, chờ hạt rơi hết rồi mới cân lần cuối (ở pha SETTLING)
+void stopMotor(const char *result) {
+  digitalWrite(EN_PIN, HIGH);
+  job.result = result;
+  job.settleAt = millis() + SETTLE_MS;
+  job.phase = FEED_SETTLING;
+}
 
-  while (millis() - t0 < FEED_TIMEOUT && !reached && !stopped) {
-    for (int i = 0; i < CHUNK_STEPS; i++) {
-      long pos = min((long)RAMP_STEPS, stepCount);
+// Gọi mỗi vòng loop(). Không chặn lâu: tối đa 1 đoạn CHUNK_STEPS xung + 1 lần đọc cân.
+void runFeed() {
+  if (job.phase == FEED_RUNNING) {
+    bool stopNow = stopRequested;
+    for (int i = 0; i < CHUNK_STEPS && !stopNow; i++) {
+      long pos = min((long)RAMP_STEPS, job.steps);
       int d = DELAY_START_US - (long)(DELAY_START_US - DELAY_MIN_US) * pos / RAMP_STEPS;
       digitalWrite(STEP_PIN, HIGH);
       delayMicroseconds(d);
       digitalWrite(STEP_PIN, LOW);
       delayMicroseconds(d);
-      stepCount++;
-      if (i % 400 == 0) {
-        mqtt.loop(); // nhận lệnh STOP trong lúc quay
+      job.steps++;
+      if (digitalRead(BTN_STOP) == LOW) stopNow = true;
+      if (i % MQTT_POLL_STEPS == MQTT_POLL_STEPS - 1) {
+        mqtt.loop(); // an toàn: callback chỉ đặt cờ, không gọi lại runFeed()
         yield();
-      }
-      if (digitalRead(BTN_STOP) == LOW || stopRequested) {
-        while (digitalRead(BTN_STOP) == LOW) delay(5);
-        stopped = true;
-        break;
+        if (stopRequested) stopNow = true;
       }
     }
-    mqtt.loop();
-    if (readWeight(1) >= goal) reached = true;
-    if (millis() - lastPub > 1000) {
-      publishTelemetry();
-      lastPub = millis();
+
+    if (stopNow) {
+      stopMotor("STOPPED");
+    } else if (readWeight(1) >= job.goal) {
+      stopMotor("DONE");
+    } else if (millis() - job.startedAt >= FEED_TIMEOUT) {
+      stopMotor("TIMEOUT");
     }
+    return;
   }
 
-  digitalWrite(EN_PIN, HIGH);
-  delay(300);
-  float endW = readWeight(3);
-  float added = max(0.0f, endW - startW);
-  const char *result = stopped ? "STOPPED" : (reached ? "DONE" : "TIMEOUT");
-  logMsg(String(stopped ? "Da dung" : (reached ? "Xong" : "Het thoi gian")) + " +" + String(added, 0) + "g");
-  lcdLine(0, "Xong! +" + String(added, 0) + "g");
+  if (job.phase == FEED_SETTLING && (long)(millis() - job.settleAt) >= 0) {
+    float endW = readWeight(3);
+    float added = max(0.0f, endW - job.startW);
+    bool stopped = strcmp(job.result, "STOPPED") == 0;
+    bool done = strcmp(job.result, "DONE") == 0;
+    logMsg(String(stopped ? "Da dung" : (done ? "Xong" : "Het thoi gian")) + " +" + String(added, 0) + "g");
+    lcdLine(0, "Xong! +" + String(added, 0) + "g");
 
-  isFeedingNow = false;
-  stopRequested = false;
-  publishFeedLog(added, endW, source, result);
-  publishTelemetry();
+    job.phase = FEED_IDLE;
+    stopRequested = false;
+    publishFeedLog(added, endW, job.source.c_str(), job.result);
+    publishTelemetry();
+  }
 }
 
 // =============================================================================
-// 8. MQTT: NHẬN LỆNH
+// 8. MQTT: NHẬN LỆNH (chỉ ghi nhận, KHÔNG quay động cơ ở đây)
 // =============================================================================
-float clampGram(float g) { return constrain(g, MIN_GRAM, MAX_GRAM); }
-
 void onMqttMessage(char *topic, byte *payload, unsigned int length) {
   JsonDocument doc;
   if (deserializeJson(doc, payload, length)) {
@@ -336,29 +420,36 @@ void onMqttMessage(char *topic, byte *payload, unsigned int length) {
     return;
   }
   String action = doc["action"] | "";
+  action.toUpperCase();
   Serial.println("[MQTT] Lenh: " + action);
 
   if (action == "STOP") {
-    stopRequested = true; // xử lý ngay cả khi đang quay
+    pendingFeed = false; // huỷ lệnh cho ăn đang chờ
+    if (isFeedingNow()) stopRequested = true; // không làm lượt sau bị dừng ngay
     logMsg("Nhan lenh DUNG");
-    return;
-  }
-  if (isFeedingNow) return; // các lệnh khác chờ lượt nhả hạt xong
-
-  if (action == "FEED") {
-    if (doc["gram"].is<float>()) TARGET_GRAM = clampGram(doc["gram"].as<float>());
-    String src = doc["source"] | "Tu xa";
-    feed(src.c_str());
-  } else if (action == "AUTO") {
-    autoMode = doc["enabled"] | !autoMode;
-    logMsg(autoMode ? "Bat TU DONG" : "Chuyen THU CONG");
+  } else if (action == "FEED") {
+    if (isFeedingNow() || pendingFeed || (lastFeedCmdAt != 0 && millis() - lastFeedCmdAt < FEED_CMD_DEDUP_MS)) {
+      Serial.println("[MQTT] Bo qua FEED: may dang ban hoac vua nhan lenh");
+      return;
+    }
+    lastFeedCmdAt = millis();
+    pendingFeedGram = doc["gram"].is<float>() ? doc["gram"].as<float>() : TARGET_GRAM;
+    pendingFeedSource = doc["source"] | "Tu xa";
+    pendingFeed = true;
   } else if (action == "TARE") {
-    doTare();
+    if (!isFeedingNow()) pendingTare = true;
   } else if (action == "SET_TARGET") {
     if (doc["gram"].is<float>()) TARGET_GRAM = clampGram(doc["gram"].as<float>());
     logMsg("Khau phan " + String(TARGET_GRAM, 0) + "g");
+  } else if (action == "AUTO") {
+    autoMode = doc["enabled"] | !autoMode;
+    sensorFeed = doc["sensor"] | true; // backend cũ không gửi "sensor" -> giữ cách cũ
+    logMsg(!autoMode ? "Chuyen THU CONG" : sensorFeed ? "Bat TU DONG" : "TU DONG theo camera");
+  } else {
+    Serial.println("[MQTT] Lenh khong ro: " + action);
+    return;
   }
-  publishTelemetry();
+  telemetryDue = true; // loop() gửi trạng thái mới, không publish trong callback
 }
 
 void mqttReconnect() {
@@ -378,7 +469,7 @@ void mqttReconnect() {
     mqtt.subscribe(tCommand.c_str(), 1);
     mqtt.publish(tStatus.c_str(), "online", true);
     logMsg("Da ket noi may chu");
-    publishTelemetry();
+    publishTelemetry(); // backend sẽ gửi lại khẩu phần + chế độ tự động
   } else {
     Serial.printf("loi rc=%d\n", mqtt.state());
   }
@@ -457,7 +548,7 @@ void setupWifi(bool forcePortal) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n=== AURAPET ESP32 FEEDER v2.0 ===");
+  Serial.println("\n=== AURAPET ESP32 FEEDER v2.1 ===");
 
   pinMode(TRIG, OUTPUT);
   pinMode(ECHO, INPUT);
@@ -477,13 +568,18 @@ void setup() {
   setupLcd();
 
   String p = String(TOPIC_PREFIX);
+  while (p.endsWith("/")) p.remove(p.length() - 1);
   tTelemetry = p + "/telemetry";
   tCommand = p + "/command";
   tLog = p + "/log";
   tStatus = p + "/status";
 
 #if MQTT_USE_TLS
-  netClient.setInsecure(); // mã hoá nhưng chưa xác thực chứng chỉ; dùng setCACert() để an toàn hơn
+#ifdef MQTT_CA_CERT
+  netClient.setCACert(MQTT_CA_CERT); // xác thực chứng chỉ broker (khuyên dùng)
+#else
+  netClient.setInsecure(); // mã hoá nhưng CHƯA xác thực broker; đặt MQTT_CA_CERT trong secrets.h
+#endif
 #endif
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMqttMessage);
@@ -522,43 +618,65 @@ void setup() {
 }
 
 void loop() {
-  // 1. Kết nối
+  // 1. Kết nối + nhận lệnh (callback chỉ đặt cờ)
   if (WiFi.status() == WL_CONNECTED) {
     if (!mqtt.connected()) mqttReconnect();
     else mqtt.loop();
   }
 
-  // 2. Cảm biến
-  currentDist = readDistanceCm();
-  readWeight(1);
+  // 2. Lượt nhả hạt đang chạy: quay 1 đoạn rồi trả quyền cho phần còn lại của loop()
+  runFeed();
+  bool feeding = isFeedingNow();
 
-  // 3. Nút bấm vật lý
-  if (pressed(BTN_AUTO)) {
-    autoMode = !autoMode;
-    logMsg(autoMode ? "Nut: Bat TU DONG" : "Nut: THU CONG");
-    publishTelemetry();
+  // 3. Cảm biến (siêu âm/cân làm động cơ khựng lại, nên bỏ qua khi đang nhả hạt)
+  if (!feeding) {
+    updateFoodLevel();
+    readWeight(1);
   }
-  if (pressed(BTN_TARE)) {
+
+  // 4. Lệnh từ web/app đã ghi nhận
+  if (pendingTare && !feeding) {
+    pendingTare = false;
     doTare();
-    publishTelemetry();
+    telemetryDue = true;
   }
-  if (pressed(BTN_FEED)) feed("Nut tren may");
+  if (pendingFeed && !feeding) {
+    pendingFeed = false;
+    startFeed(pendingFeedSource, pendingFeedGram);
+    feeding = true;
+  }
 
-  // 4. Mèo đến / đi
+  // 5. Nút bấm vật lý (nút DỪNG được xử lý trong runFeed)
+  if (pressed(BTN_AUTO)) {
+    autoMode = !autoMode; // backend đọc autoMode trong telemetry và cập nhật web
+    logMsg(autoMode ? "Nut: Bat TU DONG" : "Nut: THU CONG");
+    telemetryDue = true;
+  }
+  if (!feeding && pressed(BTN_TARE)) {
+    doTare();
+    telemetryDue = true;
+  }
+  if (!feeding && pressed(BTN_FEED)) {
+    startFeed("Nut tren may", TARGET_GRAM);
+    feeding = true;
+  }
+
+  // 6. Mèo đến / đi
   if (updateSensor(digitalRead(SENSOR_PIN))) {
     logMsg(petPresent ? "Co meo den" : "Meo da di");
-    publishTelemetry();
+    telemetryDue = true;
   }
 
-  // 5. Tự động cho ăn: có mèo + khay < 10g + hết thời gian chờ
-  if (autoMode && petPresent && !isFeedingNow && (lastAuto == 0 || millis() - lastAuto > AUTO_COOLDOWN)) {
-    if (weight < EMPTY_BOWL_GRAM) {
-      lastAuto = millis();
-      feed("Tu dong (cam bien)");
-    }
+  // 7. Tự động cho ăn theo cảm biến: có mèo + khay < 10g + hết thời gian chờ
+  //    (khi camera chạy, sensorFeed = false: backend tự gửi lệnh theo bé camera nhận ra)
+  if (!feeding && autoMode && sensorFeed && petPresent && weight < EMPTY_BOWL_GRAM
+      && (lastAuto == 0 || millis() - lastAuto > AUTO_COOLDOWN)) {
+    lastAuto = millis();
+    startFeed("Tu dong (cam bien)", TARGET_GRAM);
+    feeding = true;
   }
 
-  // 6. Hiển thị
+  // 8. Hiển thị
   updateLeds();
   if (millis() - lastLcd > 500) {
     lastLcd = millis();
@@ -566,12 +684,14 @@ void loop() {
   }
   if (millis() - lastPrint > 2000) {
     lastPrint = millis();
-    Serial.printf("Khay %.1fg | Thung %d%% | Meo %s | %s | MQTT %s\n", weight, foodLevelPercent(),
-                  petPresent ? "CO" : "KHONG", autoMode ? "AUTO" : "TAY", mqtt.connected() ? "OK" : "--");
+    Serial.printf("Khay %.1fg | Thung %d%% | Meo %s | %s | %s | MQTT %s\n", weight, foodLevelPercent(),
+                  petPresent ? "CO" : "KHONG", autoMode ? "AUTO" : "TAY", feeding ? "DANG NHA" : "-",
+                  mqtt.connected() ? "OK" : "--");
   }
 
-  // 7. Telemetry định kỳ
-  if (millis() - lastTelemetry >= TELEMETRY_INTERVAL) publishTelemetry();
+  // 9. Telemetry: ngay khi có thay đổi, hoặc định kỳ (dày hơn khi đang nhả hạt)
+  unsigned long interval = feeding ? FEED_TELEMETRY_INTERVAL : TELEMETRY_INTERVAL;
+  if (telemetryDue || millis() - lastTelemetry >= interval) publishTelemetry();
 
-  delay(15);
+  if (!feeding) delay(15); // đang nhả hạt thì quay tiếp ngay, không nghỉ
 }

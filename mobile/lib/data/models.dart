@@ -37,6 +37,9 @@ class Pet {
   final double weight;
   final String? imageUrl;
 
+  /// Khẩu phần (gram) nhả khi camera nhận ra bé; null = dùng khẩu phần chung của máy.
+  final int? portionGram;
+
   const Pet({
     required this.id,
     required this.ownerId,
@@ -47,6 +50,7 @@ class Pet {
     required this.neutered,
     required this.weight,
     this.imageUrl,
+    this.portionGram,
   });
 
   bool get isMale => gender == 'MALE';
@@ -61,6 +65,7 @@ class Pet {
         neutered: _bool(j['neutered']),
         weight: _dbl(j['weight']),
         imageUrl: _nonEmpty(j['imageUrl']),
+        portionGram: j['portionGram'] == null ? null : _int(j['portionGram']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -71,6 +76,7 @@ class Pet {
         'neutered': neutered,
         'weight': weight,
         'imageUrl': imageUrl ?? '',
+        if (portionGram != null) 'portionGram': portionGram,
       };
 }
 
@@ -82,6 +88,9 @@ class DeviceSettings {
   final String? feederPetId;
   final String? feederPetName;
 
+  /// Máy đang ghi nhật ký cho bé của tài khoản khác (backend ẩn id/tên).
+  final bool feederPetOfOtherUser;
+
   const DeviceSettings({
     this.targetGram = 30,
     this.autoMode = false,
@@ -89,6 +98,7 @@ class DeviceSettings {
     this.scheduleTimes = const [],
     this.feederPetId,
     this.feederPetName,
+    this.feederPetOfOtherUser = false,
   });
 
   factory DeviceSettings.fromJson(Map<String, dynamic> j) => DeviceSettings(
@@ -98,6 +108,7 @@ class DeviceSettings {
         scheduleTimes: _list(j['scheduleTimes']).map((e) => '$e').toList(),
         feederPetId: j['feederPetId'] as String?,
         feederPetName: j['feederPetName'] as String?,
+        feederPetOfOtherUser: _bool(j['feederPetOfOtherUser']),
       );
 }
 
@@ -128,6 +139,8 @@ class DeviceState {
   final DateTime? lastFeedAt;
   final int? lastFeedGram;
   final String? lastFeedSource;
+  final String? lastDetectedPetName;
+  final DateTime? lastDetectedPetAt;
   final DeviceSettings settings;
 
   const DeviceState({
@@ -155,6 +168,8 @@ class DeviceState {
     this.lastFeedAt,
     this.lastFeedGram,
     this.lastFeedSource,
+    this.lastDetectedPetName,
+    this.lastDetectedPetAt,
     this.settings = const DeviceSettings(),
   });
 
@@ -183,6 +198,8 @@ class DeviceState {
         lastFeedAt: _date(j['lastFeedAt']),
         lastFeedGram: j['lastFeedGram'] == null ? null : _int(j['lastFeedGram']),
         lastFeedSource: j['lastFeedSource'] as String?,
+        lastDetectedPetName: j['lastDetectedPetName'] as String?,
+        lastDetectedPetAt: _date(j['lastDetectedPetAt']),
         settings: DeviceSettings.fromJson(_map(j['settings'])),
       );
 }
@@ -266,6 +283,12 @@ class HealthSummary {
   final double weightChangeKg;
   final List<String> notes;
 
+  /// false = chưa có nhật ký ăn 7 ngày, điểm sức khoẻ chưa đáng tin (hiện "–").
+  final bool hasFeedingData;
+
+  /// false = mới cân 1 lần, chưa so sánh được.
+  final bool weightCompared;
+
   const HealthSummary({
     required this.healthScore,
     required this.status,
@@ -274,6 +297,8 @@ class HealthSummary {
     required this.weeklyLitterVisits,
     required this.weightChangeKg,
     required this.notes,
+    this.hasFeedingData = true,
+    this.weightCompared = true,
   });
 
   factory HealthSummary.fromJson(Map<String, dynamic> j) => HealthSummary(
@@ -284,6 +309,9 @@ class HealthSummary {
         weeklyLitterVisits: _int(j['weeklyLitterVisits']),
         weightChangeKg: _dbl(j['weightChangeKg']),
         notes: _list(j['notes']).map((e) => '$e').toList(),
+        // Máy chủ cũ không gửi 2 trường này -> coi như có dữ liệu như trước
+        hasFeedingData: j['hasFeedingData'] == null || _bool(j['hasFeedingData']),
+        weightCompared: j['weightCompared'] == null || _bool(j['weightCompared']),
       );
 }
 

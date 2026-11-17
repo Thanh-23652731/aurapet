@@ -21,10 +21,17 @@
 3. Trong `firmware/esp32_aurapet/`: sao chép `secrets.example.h` thành `secrets.h` và điền:
    - `WIFI_SSID`, `WIFI_PASS`
    - `MQTT_HOST`, `MQTT_PORT`, `MQTT_USE_TLS`, `MQTT_USER`, `MQTT_PASS`
+   - `MQTT_CA_CERT` (khi bật TLS): chứng chỉ CA của broker để ESP32 xác thực đúng broker
    - `TOPIC_PREFIX` — **phải giống hệt** `MQTT_TOPIC_PREFIX` trong file `.env` của backend
 4. Chọn board *ESP32 Dev Module* → Upload → mở Serial Monitor 115200 để xem log.
 
 `secrets.h` đã nằm trong `.gitignore` nên mật khẩu Wi-Fi không bị đưa lên GitHub.
+
+`firmware/esp32_aurapet` là **bản firmware duy nhất** cho máy cho ăn (bản `esp32_feeder_emqx` cũ đã được gộp vào). Cách chạy bên trong:
+
+- Lệnh MQTT chỉ được ghi nhận trong callback; `loop()` mới thực hiện. Lệnh `FEED` lặp lại trong 3 giây bị bỏ qua; `gram` trong lệnh `FEED` chỉ dùng cho lần đó (khẩu phần mặc định đổi bằng `SET_TARGET`); `STOP` chỉ có tác dụng khi đang nhả hạt.
+- Nhả hạt là state machine `IDLE → RUNNING → SETTLING → IDLE`: mỗi vòng `loop()` quay 1 đoạn 800 xung rồi đọc cân, nên MQTT, nút bấm và LCD vẫn chạy trong lúc nhả. Dừng khi đủ gram (`DONE`), bấm dừng (`STOPPED`) hoặc quá 20 giây (`TIMEOUT`).
+- Mức hạt trong thùng có độ trễ (báo hết khi > 15 cm, hết báo khi < 13 cm) và giữ số đo cũ 5 giây khi siêu âm mất tín hiệu thoáng qua.
 
 ## 3. Đổi Wi-Fi không cần nạp lại code
 
@@ -86,6 +93,38 @@ ESP32 gửi `PREFIX/water` mỗi 5 giây (và ngay khi đổi trạng thái), k�
 
 Script `firmware/raspberry_pi/cat_detection_gateway.py` dùng YOLOv8n (lớp `cat` của COCO). Mỗi khi mèo **đến gần** camera — nhận diện đủ `CAT_STABLE_FRAMES` lần liên tiếp, tâm nằm trong `CAT_ROI` và chiếm ít nhất `CAT_NEAR_AREA` khung hình — Pi gửi `{"catPresent": true}` lên `PREFIX/vision`; khi mèo rời đi gửi `false`. Backend cho ăn nếu đang bật Tự động và khay < 10 g (có chống cho ăn lặp 90 giây). Đồng thời hình trực tiếp có khung đánh dấu mèo được gửi lên web/app.
 
+### Kiểm tra camera trước (khuyên làm trên Pi lần đầu)
+
+`test_camera.py` kiểm tra lần lượt: mở camera và đo khung/giây, phát hiện ảnh đen, nạp YOLOv8 và tìm mèo, đọc tên từng bé (nếu có `models/cat_classifier.pt`), kết nối backend và MQTT. Mỗi bước báo `[OK]` / `[LỖI]` kèm cách sửa, và **không gửi sự kiện nào lên hệ thống** (máy không nhả hạt).
+
+**Pi chạy mô hình bằng ONNX Runtime, không cần PyTorch.** PyTorch bản mới bị lỗi `Illegal instruction` trên Raspberry Pi 4 (CPU Cortex-A72), còn ONNX Runtime chạy ổn định và nhẹ hơn nhiều. Mô hình được xuất sang `.onnx` trên máy tính rồi chép sang Pi:
+
+```powershell
+# Trên máy tính Windows (sau mỗi lần train lại mô hình nhận diện từng bé)
+cd firmware\raspberry_pi
+.\.venv\Scripts\python.exe -m pip install onnx onnxslim     # lần đầu
+.\.venv\Scripts\python.exe export_onnx.py                   # -> yolov8n.onnx (640) + models\cat_classifier.onnx
+#   Pi chạy chậm: export_onnx.py --imgsz 416 (nhẹ hơn ~2 lần, tầm nhìn gần hơn)
+cd ..\..
+# Chép đúng các file Pi cần (~20 MB, không chép .venv/.cache/dataset)
+powershell -ExecutionPolicy Bypass -File scripts\copy_to_pi.ps1 -PiHost <IP của Pi> -User <tài khoản Pi>
+```
+
+```bash
+# Trên Pi (Raspberry Pi OS 64-bit)
+cd ~/aurapet && ./setup_pi.sh                    # cài thư viện, liệt kê camera đang cắm
+source ~/aurapet-venv/bin/activate
+python3 test_camera.py                           # camera + AI
+python3 test_camera.py --live 30                 # đưa mèo/ảnh mèo trên điện thoại trước camera
+AURAPET_SERVER=http://192.168.1.10:8080 MQTT_HOST=broker.emqx.io python3 test_camera.py   # thêm kiểm tra kết nối
+```
+
+Ảnh chụp thử được lưu ở `test_snapshot.jpg` và `test_detect.jpg` (có khung nhận diện). Camera module CSI: `sudo apt install -y python3-picamera2` rồi thêm `--picam`. Không có camera: `--image meo.jpg` để thử riêng phần AI.
+
+Chạy thật: `./run_camera.sh` (đọc cấu hình từ `aurapet-camera.env`: MQTT, `CAMERA_KEY`, `AURAPET_SERVER` = IP máy chạy backend). Tự chạy mỗi khi Pi bật nguồn: `./setup_pi.sh --service`, xem log bằng `journalctl -u aurapet-camera -f`.
+
+### Chạy gateway
+
 ```bash
 pip install -r firmware/raspberry_pi/requirements.txt
 export MQTT_HOST=... MQTT_PORT=... MQTT_TLS=1 MQTT_USERNAME=... MQTT_PASSWORD=...
@@ -116,5 +155,19 @@ python firmware\raspberry_pi\cat_detection_gateway.py
 | `JPEG_QUALITY` | `70` | Giảm 50–60 nếu hình bị giật vì Wi-Fi yếu |
 | `TORCH_THREADS` | nửa số nhân CPU | Số nhân dành cho YOLO, phần còn lại lo hình trực tiếp |
 | `SHOW_PREVIEW` | `0` | `1` = mở cửa sổ xem trước (cần `opencv-python`), nhấn `q` để thoát |
+| `CAT_CLASSIFIER_PATH` | `firmware/raspberry_pi/models/cat_classifier.pt` | Đường dẫn mô hình phân loại từng bé mèo |
+| `DEMO_PET_NAME` | rỗng | Tên bé mèo giả lập để test nhanh tính năng khi chưa kịp train (vd. `Mimi` hay `Tom`) |
+
+### Huấn luyện nhận diện từng bé mèo (Re-ID / Classification)
+1. Chuẩn bị ảnh bằng `prepare_sample_dataset.py` (tự chia train/val, bỏ ảnh hỏng/nhoè), chọn 1 trong 2 cách:
+   - **Chạy thử khi chưa có ảnh bé nhà mình** — lấy ảnh mẫu từ bộ [Oxford-IIIT Pet](https://www.robots.ox.ac.uk/~vgg/data/pets/) (CC BY-SA 4.0, tự tải ~792 MB một lần vào `firmware/raspberry_pi/.cache/`). Mỗi "bé" là một giống mèo khác nhau:
+     `python firmware/raspberry_pi/prepare_sample_dataset.py oxford --pets "Mimi=Siamese,Tom=Bengal"`
+     (tránh giống Sphynx: mèo không lông bị YOLOv8 nhìn nhầm thành chó, camera hầu như không phát hiện được)
+   - **Bé thật** — quay vài video ngắn (nhiều góc, nhiều ánh sáng, nên quay bằng chính camera của Pi) rồi cắt ảnh:
+     `python firmware/raspberry_pi/prepare_sample_dataset.py video --name Mimi --video mimi1.mp4 mimi2.mp4`
+     Thêm lớp mèo lạ để mô hình biết khi nào không phải bé nhà mình: `... oxford --pets "" --with-other`
+   Tên bé phải **trùng tên trong app AuraPet** để nhật ký ăn được ghi đúng bé. Mỗi bé đặt **khẩu phần riêng** trong mục Thú cưng (ô "Khẩu phần khi camera nhận ra bé"): camera nhận ra bé nào thì máy nhả đúng khẩu phần của bé đó, nhận ra mèo lạ (lớp `Khac`) thì không nhả. Cách thủ công vẫn dùng được: `train_cat_classifier.py --setup --names "Mimi,Tom"` rồi tự chép 30–50 ảnh/bé vào `dataset/train/<Tên_Bé>`.
+2. Chạy huấn luyện: `python firmware/raspberry_pi/train_cat_classifier.py --train --epochs 40`
+Mô hình tự động xuất sang PyTorch (`.pt`) và ONNX (`.onnx`) lưu trong `firmware/raspberry_pi/models/`. Gateway sẽ tự động phát hiện và nhận diện chính xác từng bé để phân bổ khẩu phần và ghi nhật ký ăn riêng.
 
 Nếu camera lỗi, script chỉ báo lỗi và thử mở lại — **không** giả lập "có mèo". Muốn dùng model tự train, đặt `YOLO_MODEL=đường/dẫn/best.pt` (và sửa `CAT_CLASS_ID` nếu lớp mèo không phải 15).

@@ -19,6 +19,9 @@ services:
         sync: false
       - key: AURAPET_JWT_SECRET
         generateValue: true
+      # Không tạo tài khoản mẫu (mật khẩu công khai) trên máy chủ public
+      - key: AURAPET_DEMO_DATA
+        value: "false"
       - key: MQTT_HOST
         sync: false
       - key: MQTT_PORT

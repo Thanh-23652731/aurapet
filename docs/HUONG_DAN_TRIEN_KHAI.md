@@ -6,7 +6,7 @@
 2. `.env.example` → `.env`, điền:
    - `AURAPET_JWT_SECRET` (≥ 32 ký tự ngẫu nhiên)
    - `DB_*` của MariaDB
-   - `MQTT_*` và `MQTT_TOPIC_PREFIX` (giống firmware)
+   - `MQTT_*` và `MQTT_TOPIC_PREFIX` (giống firmware)   - `AURAPET_DEMO_DATA=true` nếu muốn có tài khoản mẫu khi CSDL trống (chỉ khi chạy thử)
 3. Chạy `start_aurapet.bat`. Script nạp `.env`, tự build lại khi code thay đổi, in địa chỉ LAN cho điện thoại.
 4. Mở `http://localhost:8080`. Điện thoại cùng Wi-Fi mở `http://<IP-máy-tính>:8080`.
 5. Cần truy cập từ 4G/mạng khác: chạy `start_cloudflare_tunnel.bat` để có địa chỉ `https://….trycloudflare.com`.
@@ -14,7 +14,7 @@
 ## B. Cơ sở dữ liệu Supabase
 
 1. Tạo project trên supabase.com (region Singapore).
-2. SQL Editor → chạy `supabase/schema.sql`, rồi `supabase/seed.sql` (tài khoản mẫu `admin@aurapet.com / Admin@123`).
+2. SQL Editor → chạy `supabase/schema.sql`. Chỉ chạy thêm `supabase/seed.sql` nếu là CSDL demo (nó tạo tài khoản `admin@aurapet.com / Admin@123` với mật khẩu công khai).
 3. Project Settings → Database → Connection string (**Transaction pooler**, JDBC).
 4. Trong `.env`:
    ```
@@ -26,7 +26,7 @@
 
 ## C. Backend trên cloud
 
-**Render (miễn phí):** New → Blueprint → chọn repo (dùng `render.yaml`) → điền các biến `SUPABASE_*`, `MQTT_*`, `GEMINI_API_KEY`. Health check: `/actuator/health`.
+**Render (miễn phí):** New → Blueprint → chọn repo (dùng `render.yaml`) → điền các biến `SUPABASE_*`, `MQTT_*`, `GEMINI_API_KEY`. Blueprint đã đặt sẵn `AURAPET_DEMO_DATA=false`. Health check: `/actuator/health`.
 
 **VPS có Docker:**
 ```bash

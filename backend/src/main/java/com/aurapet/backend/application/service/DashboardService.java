@@ -1,6 +1,7 @@
 package com.aurapet.backend.application.service;
 
 import com.aurapet.backend.application.dto.*;
+import com.aurapet.backend.domain.model.Alert;
 import com.aurapet.backend.domain.model.FeedingLog;
 import com.aurapet.backend.domain.model.Pet;
 import com.aurapet.backend.domain.repository.AlertRepository;
@@ -40,7 +41,11 @@ public class DashboardService {
             litterCount = litterLogRepository.countByPetIdInAndTimestampAfter(petIds, startOfToday);
         }
 
-        List<AlertDto> alerts = alertRepository.findTop15ByOrderByCreatedAtDesc().stream()
+        // Admin thấy mọi cảnh báo; người dùng thường thấy cảnh báo chung + cảnh báo về bé của mình
+        List<Alert> visible = actor.admin() ? alertRepository.findTop15ByOrderByCreatedAtDesc()
+                : petIds.isEmpty() ? alertRepository.findTop15ByPetIdIsNullOrderByCreatedAtDesc()
+                : alertRepository.findTop15ByPetIdIsNullOrPetIdInOrderByCreatedAtDesc(petIds);
+        List<AlertDto> alerts = visible.stream()
                 .map(a -> AlertDto.builder()
                         .id(a.getId())
                         .type(a.getType())
@@ -57,7 +62,7 @@ public class DashboardService {
                 .litterUsageCount((int) litterCount)
                 .last7Days(healthAnalyticsService.dailyTotals(petIds, 7))
                 .latestAlerts(alerts)
-                .device(deviceService.getState())
+                .device(deviceService.getState(actor))
                 .build();
     }
 

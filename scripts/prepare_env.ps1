@@ -1,7 +1,6 @@
 ﻿# Chuẩn bị file .env trước khi chạy backend (được start_aurapet.bat gọi tự động):
 #  - Thay AURAPET_JWT_SECRET nếu thiếu, quá ngắn hoặc là giá trị đã bị lộ trên GitHub
-#  - Thêm cấu hình MQTT, lấy TOPIC_PREFIX từ firmware/esp32_aurapet/secrets.h nếu .env chưa có
-$ErrorActionPreference = 'Stop'
+#  - Thêm cấu hình MQTT, lấy TOPIC_PREFIX từ firmware/esp32_aurapet/secrets.h nếu .env chưa có$ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $root '.env'
 if (-not (Test-Path $envPath)) { Copy-Item (Join-Path $root '.env.example') $envPath }

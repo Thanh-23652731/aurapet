@@ -13,7 +13,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 /**
- * Tạo dữ liệu mẫu khi CSDL còn trống (tắt bằng AURAPET_DEMO_DATA=false).
+ * Tạo dữ liệu mẫu khi CSDL còn trống. Mặc định TẮT; bật bằng AURAPET_DEMO_DATA=true khi chạy thử trên máy mình.
  * Tài khoản: admin@aurapet.com / Admin@123, user@aurapet.com / User@123
  */
 @Slf4j
@@ -91,6 +91,8 @@ public class DataInitializer implements CommandLineRunner {
                 .message("Hệ thống AuraPet đã khởi tạo dữ liệu mẫu").createdAt(now).build());
 
         log.info("Đã tạo dữ liệu mẫu: 2 tài khoản, 3 thú cưng.");
+        log.warn("Tài khoản mẫu dùng mật khẩu công khai trong README. KHÔNG bật AURAPET_DEMO_DATA trên máy chủ public; "
+                + "nếu đã lỡ bật, hãy đổi mật khẩu admin@aurapet.com ngay.");
     }
 
     private void feed(Pet pet, int gram, Instant at) {

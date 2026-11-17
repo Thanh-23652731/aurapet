@@ -21,6 +21,5 @@ void main() {
 
     await tester.tap(find.text('Tạo tài khoản').first);
     await tester.pump();
-    expect(find.text('Họ tên'), findsOneWidget);
-  });
+    expect(find.text('Họ tên'), findsOneWidget);  });
 }

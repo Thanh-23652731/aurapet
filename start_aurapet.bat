@@ -64,7 +64,6 @@ echo.
 echo   Web dashboard : http://localhost:%PORT%
 if not "%LAN_IP%"=="" echo   Dien thoai    : http://%LAN_IP%:%PORT%  (cung mang Wi-Fi)
 echo   Tai lieu API  : http://localhost:%PORT%/swagger-ui.html
-echo   Tai khoan mau : admin@aurapet.com / Admin@123
-echo --------------------------------------------------------
+if /i "%AURAPET_DEMO_DATA%"=="true" echo   Tai khoan mau : admin@aurapet.com / Admin@123echo --------------------------------------------------------
 java -jar "%JAR%"
 pause

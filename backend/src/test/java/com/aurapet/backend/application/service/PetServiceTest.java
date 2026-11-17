@@ -5,7 +5,9 @@ import com.aurapet.backend.application.dto.PetDto;
 import com.aurapet.backend.application.dto.UpdatePetRequest;
 import com.aurapet.backend.domain.model.Gender;
 import com.aurapet.backend.domain.model.Pet;
+import com.aurapet.backend.domain.model.WeightRecord;
 import com.aurapet.backend.domain.repository.PetRepository;
+import com.aurapet.backend.domain.repository.WeightRecordRepository;
 import com.aurapet.backend.interfaces.web.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +31,9 @@ class PetServiceTest {
 
     @Mock
     private PetRepository petRepository;
+
+    @Mock
+    private WeightRecordRepository weightRecordRepository;
 
     @InjectMocks
     private PetService petService;
@@ -106,5 +111,16 @@ class PetServiceTest {
         assertThat(updated.getName()).isEqualTo("Luna 2");
         assertThat(updated.getWeight()).isEqualTo(4.5);
         assertThat(updated.getBreed()).isEqualTo("Anh lông ngắn");
+        // cân nặng đổi 4.25 -> 4.5: ghi thêm 1 lần cân vào lịch sử
+        verify(weightRecordRepository).save(argThat((WeightRecord w) -> w.getWeight() == 4.5 && w.getPetId().equals(petId)));
+    }
+
+    @Test
+    @DisplayName("Sửa tên mà không đổi cân nặng thì không ghi lần cân mới")
+    void updateWithoutWeightChangeKeepsHistory() {
+        when(petRepository.findById(petId)).thenReturn(Optional.of(samplePet));
+        when(petRepository.save(any(Pet.class))).thenAnswer(inv -> inv.getArgument(0));
+        petService.updatePet(petId, UpdatePetRequest.builder().name("Luna 3").weight(4.25).build(), owner);
+        verify(weightRecordRepository, never()).save(any());
     }
 }

@@ -182,7 +182,7 @@ class _ControlScreenState extends ConsumerState<ControlScreen> {
                 crossAxisSpacing: 8,
                 childAspectRatio: 2.9,
                 children: [
-                  Fact('Mèo ở gần', !online ? '–' : d!.catPresent ? 'Có mèo' : 'Không'),
+                  Fact('Mèo ở gần', !online ? '–' : d!.catPresent ? (d.lastDetectedPetName != null ? 'Bé ${d.lastDetectedPetName}' : 'Có mèo') : (d.lastDetectedPetName != null ? 'Thấy ${d.lastDetectedPetName}' : 'Không')),
                   Fact('Lần ăn gần nhất', d?.lastFeedAt == null ? '–' : '${d!.lastFeedGram ?? '?'} g, ${ago(d.lastFeedAt)}'),
                   Fact('Hôm nay đã ăn', stats == null ? '–' : '${stats.todayFoodGram} g (${stats.feedingSessionsCount} bữa)'),
                   Fact('Wi-Fi máy', !online ? '–' : _signal(d!.wifiRssi)),

@@ -42,4 +42,9 @@ public class CreatePetRequest {
 
     @Size(max = 1024)
     private String imageUrl;
+
+    /** Khẩu phần riêng khi camera nhận ra bé (5–150 g); bỏ trống = dùng khẩu phần chung. */
+    @Min(value = 5, message = "Khẩu phần tối thiểu 5 g")
+    @Max(value = 150, message = "Khẩu phần tối đa 150 g")
+    private Integer portionGram;
 }

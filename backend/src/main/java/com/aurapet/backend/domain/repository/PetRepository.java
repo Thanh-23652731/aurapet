@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -18,6 +19,8 @@ public interface PetRepository extends JpaRepository<Pet, UUID> {
     List<Pet> findAllByOrderByCreatedAtAsc();
 
     List<Pet> findByOwnerIdOrderByCreatedAtAsc(UUID ownerId);
+
+    Optional<Pet> findFirstByNameIgnoreCase(String name);
 
     @Query("SELECT p FROM Pet p WHERE " +
            "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.breed) LIKE LOWER(CONCAT('%', :search, '%'))) AND " +

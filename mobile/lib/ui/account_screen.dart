@@ -92,7 +92,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           if (pets.isNotEmpty)
             DropdownButtonFormField<String>(
               initialValue: pets.any((p) => p.id == feederId) ? feederId : null,
-              decoration: const InputDecoration(labelText: 'Bé được ghi nhật ký khi máy nhả hạt', isDense: true),
+              decoration: const InputDecoration(
+                labelText: 'Bé mặc định (khi camera không nhận ra bé nào)',
+                helperText: 'Camera nhận ra bé nào thì nhả khẩu phần riêng của bé đó',
+                isDense: true,
+              ),
               items: [for (final p in pets) DropdownMenuItem(value: p.id, child: Text(p.name))],
               onChanged: (v) async {
                 if (v == null) return;
@@ -100,6 +104,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 if (context.mounted) showMessage(context, err ?? 'Đã lưu', error: err != null);
               },
             ),
+          if (d?.settings.feederPetOfOtherUser ?? false) ...[
+            const SizedBox(height: 6),
+            Text('Bé mặc định hiện là bé của tài khoản khác. Chọn bé của bạn để chuyển sang.',
+                style: TextStyle(color: context.muted, fontSize: 13)),
+          ],
           const SizedBox(height: 8),
           Text(
             d == null

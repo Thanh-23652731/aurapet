@@ -51,6 +51,8 @@ public class DeviceStateDto {
     private String lastFeedSource;
 
     private Instant cameraLastSeen;
+    private String lastDetectedPetName;
+    private Instant lastDetectedPetAt;
 
     private DeviceSettingsDto settings;
 }

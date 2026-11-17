@@ -19,6 +19,10 @@ public class HealthSummaryDto {
     private Integer expectedDailyFoodGram;
     private Integer weeklyLitterVisits;
     private Double weightChangeKg;
+    /** Có nhật ký cho ăn trong 7 ngày. false = điểm sức khoẻ chưa đáng tin, giao diện hiện "–". */
+    private boolean hasFeedingData;
+    /** Có ít nhất 2 lần cân để so sánh; false = weightChangeKg không có ý nghĩa. */
+    private boolean weightCompared;
     private String aiRecommendation;
     private List<String> notes;
 }

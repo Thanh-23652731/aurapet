@@ -82,7 +82,9 @@ public class HealthAnalyticsService {
         }
 
         score = Math.max(40, Math.min(100, score));
-        String status = score >= 90 ? "Tốt" : score >= 75 ? "Cần theo dõi" : "Cần chú ý";
+        boolean hasFeedingData = !feedings.isEmpty();
+        String status = !hasFeedingData ? "Chưa đủ dữ liệu"
+                : score >= 90 ? "Tốt" : score >= 75 ? "Cần theo dõi" : "Cần chú ý";
         String recommendation = pet.getName() + ": " + String.join(" ", notes);
 
         return HealthSummaryDto.builder()
@@ -94,6 +96,8 @@ public class HealthAnalyticsService {
                 .expectedDailyFoodGram(expected)
                 .weeklyLitterVisits(litter.size())
                 .weightChangeKg(weightChange)
+                .hasFeedingData(hasFeedingData)
+                .weightCompared(weights.size() >= 2)
                 .aiRecommendation(recommendation)
                 .notes(notes)
                 .build();

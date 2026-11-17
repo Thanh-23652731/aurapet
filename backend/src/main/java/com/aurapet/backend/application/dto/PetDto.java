@@ -20,4 +20,6 @@ public class PetDto {
     private Boolean neutered;
     private Double weight;
     private String imageUrl;
+    /** Khẩu phần riêng khi camera nhận ra bé; null = dùng khẩu phần chung. */
+    private Integer portionGram;
 }

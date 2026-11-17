@@ -1,5 +1,8 @@
 # Camera phát hiện mèo (cat_detection_gateway.py)
+# MÁY TÍNH (train + xuất ONNX). Raspberry Pi dùng requirements-pi.txt (ONNX Runtime, không PyTorch).
 ultralytics>=8.1
+onnx
+onnxslim
 paho-mqtt>=1.6
 # Raspberry Pi không màn hình: dùng bản headless.
 # Laptop muốn xem cửa sổ (SHOW_PREVIEW=1): thay dòng dưới bằng opencv-python

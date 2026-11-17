@@ -1,5 +1,7 @@
 -- ===================================================================
 -- AuraPet AIoT Smart Pet Care - Supabase Seed Data
+-- CHỈ DÙNG ĐỂ DEMO: tạo tài khoản có mật khẩu công khai. KHÔNG chạy trên CSDL
+-- của máy chủ public; nếu đã lỡ chạy, hãy đổi mật khẩu admin@aurapet.com ngay.
 -- ===================================================================
 
 -- 1. TÀI KHOẢN MẪU (Mật khẩu đã mã hóa BCrypt chuẩn Spring Security)
@@ -48,8 +50,9 @@ VALUES
 -- 8. CẢNH BÁO MẪU
 INSERT INTO public.alerts (id, type, level, message, created_at)
 VALUES
-    (gen_random_uuid(), 'FOOD_LOW', 'INFO', 'Lượng hạt trong khay dự trữ còn 85%, đủ dùng cho 5 ngày tới.', CURRENT_TIMESTAMP),
-    (gen_random_uuid(), 'WATER_STATUS', 'INFO', 'Hệ thống lọc tuần hoàn nước hoạt động ổn định.', CURRENT_TIMESTAMP);
+    -- type phải thuộc enum AlertType (HEALTH, FEEDING, LITTER, SYSTEM), nếu không backend lỗi khi đọc cảnh báo
+    (gen_random_uuid(), 'FEEDING', 'INFO', 'Lượng hạt trong khay dự trữ còn 85%, đủ dùng cho 5 ngày tới.', CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'SYSTEM', 'INFO', 'Hệ thống lọc tuần hoàn nước hoạt động ổn định.', CURRENT_TIMESTAMP);
 
 -- Cài đặt máy cho ăn mặc định
 INSERT INTO public.device_settings (id, target_gram, auto_mode, schedule_enabled, schedule_times)

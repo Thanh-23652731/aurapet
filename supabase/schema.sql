@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS public.alerts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON public.alerts(created_at DESC);
+-- Khẩu phần riêng (gram) nhả cho bé khi camera nhận ra bé; NULL = dùng khẩu phần chung của máy
+ALTER TABLE public.pets ADD COLUMN IF NOT EXISTS portion_gram INTEGER;
+-- Bé mà cảnh báo nói tới (null = cảnh báo chung của thiết bị); người dùng thường chỉ thấy cảnh báo về bé của mình
+ALTER TABLE public.alerts ADD COLUMN IF NOT EXISTS pet_id UUID;
 
 -- 7. CÀI ĐẶT MÁY CHO ĂN (DEVICE_SETTINGS) - chỉ 1 dòng id = 1
 -- Trạng thái thời gian thực (cân, thùng chứa, mèo...) KHÔNG lưu DB mà giữ trong RAM của backend.

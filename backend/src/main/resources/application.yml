@@ -23,7 +23,8 @@ aurapet:
     # BẮT BUỘC đặt trong .env (>= 32 ký tự). Không có giá trị mặc định để tránh lộ khoá.
     secret: ${AURAPET_JWT_SECRET:}
     expiration-ms: ${AURAPET_JWT_EXPIRATION_MS:604800000} # 7 ngày (app lưu đăng nhập)
-  demo-data: ${AURAPET_DEMO_DATA:true}
+  # Tạo tài khoản mẫu (mật khẩu công khai trong README) khi CSDL trống. Chỉ bật khi chạy thử trên máy mình.
+  demo-data: ${AURAPET_DEMO_DATA:false}
   gemini:
     api-key: ${GEMINI_API_KEY:}
     model: ${GEMINI_MODEL:gemini-3.5-flash}

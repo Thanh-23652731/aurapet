@@ -104,10 +104,17 @@
 
   // ------------------------------------------------------------------ đăng nhập
   let authMode = 'login';
+  // Cờ từ /api/v1/ping: chỉ hiện nút "Dùng thử" khi máy chủ bật dữ liệu mẫu
+  let serverInfo = {};
+  async function loadServerInfo() {
+    try { serverInfo = (await api('/api/v1/ping')) || {}; } catch { serverInfo = {}; }
+    setAuthMode(authMode);
+  }
   function setAuthMode(mode) {
     authMode = mode;
     $$('[data-auth-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.authTab === mode)));
     $$('[data-only]').forEach((el) => { el.hidden = el.dataset.only !== mode; });
+    $('#demo-row').hidden = mode !== 'login' || !serverInfo.demoData;
     $('#auth-submit').textContent = mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản';
     $('#auth-form [name=password]').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
     $('#auth-error').textContent = '';
@@ -132,6 +139,7 @@
       store.set('aurapet_api', v || null);
       API = v || defaultBase();
       renderServerLabel();
+      loadServerInfo();
       toast(v ? 'Đã kết nối máy chủ' : 'Dùng máy chủ cùng địa chỉ trang', 'ok');
     } catch {
       toast(`Không tìm thấy máy chủ AuraPet tại ${v}`, 'err');
@@ -281,7 +289,9 @@
     $('#ps-avatar').innerHTML = avatar(p);
     $('#ps-name').textContent = p.name;
     $('#ps-meta').textContent = `${p.age} tuổi · ${p.breed} · ${p.gender === 'MALE' ? 'đực' : 'cái'}`;
-    if (h) {
+    if (h && h.hasFeedingData === false) {
+      setBadge($('#ps-health'), 'off', h.status); // "Chưa đủ dữ liệu": chưa chấm điểm
+    } else if (h) {
       const kind = h.healthScore >= 90 ? 'ok' : h.healthScore >= 75 ? 'warn' : 'bad';
       setBadge($('#ps-health'), kind, `${h.status} · ${h.healthScore}`);
     } else setBadge($('#ps-health'), 'off', 'Chưa có dữ liệu');
@@ -293,7 +303,8 @@
     $('#m-weight').textContent = `${nf(p.weight)} kg`;
     const dw = h?.weightChangeKg ?? 0;
     const dEl = $('#m-weight-delta');
-    dEl.textContent = dw ? `${dw > 0 ? '+' : ''}${nf(dw)} kg` : 'ổn định';
+    dEl.textContent = h && h.weightCompared === false ? 'mới cân 1 lần'
+      : dw ? `${dw > 0 ? '+' : ''}${nf(dw)} kg` : 'ổn định';
     dEl.className = Math.abs(dw) >= 0.2 ? 'up' : '';
 
     // "Lần gần nhất" lấy từ máy dọn cát (renderDevice); ở đây chỉ còn số lần 7 ngày của bé đang chọn
@@ -341,6 +352,7 @@
     const d = S.device;
     if (!d) return;
     const set = d.settings || {};
+    renderFeederSelect();
     const online = d.online;
     const feeding = online && d.feeding;
     if (feeding) feedPendingUntil = 0;
@@ -390,7 +402,8 @@
     $('#last-feed').innerHTML = d.lastFeedAt
       ? `${esc(d.lastFeedGram ?? '?')} g <small>${esc(ago(d.lastFeedAt))}${d.lastFeedSource ? ' · ' + esc(d.lastFeedSource) : ''}</small>`
       : '<span class="na">Chưa có</span>';
-    $('#cat-present').innerHTML = !online ? '<span class="na">Không rõ</span>' : d.catPresent ? '<span class="ok-t">Có mèo</span>' : 'Không';
+    const catTxt = d.lastDetectedPetName ? `<span class="ok-t">Bé ${esc(d.lastDetectedPetName)}</span>` : '<span class="ok-t">Có mèo</span>';
+    $('#cat-present').innerHTML = !online ? '<span class="na">Không rõ</span>' : d.catPresent ? catTxt : (d.lastDetectedPetName ? `<span class="dim">Vừa thấy ${esc(d.lastDetectedPetName)}</span>` : 'Không');
 
     // Nút cho ăn
     const feedBtn = $('#feed-btn');
@@ -574,6 +587,8 @@
           renderCam(s);
         } else if (res.status === 204) {
           renderCam(s);
+          // Camera chưa từng gửi hình: hỏi thưa hơn (10 giây/lần) thay vì liên tục
+          if (!CAM.hadFrame && !s.time) await sleep(8000);
         } else {
           renderCam({ online: false, error: `Máy chủ trả lỗi ${res.status}` });
           await sleep(3000);
@@ -659,9 +674,12 @@
   // Lịch hẹn giờ
   function renderSchedule(times, next, enabled) {
     $('.sched').classList.toggle('off', !enabled);
-    $('#sched-chips').innerHTML = times.length
+    const html = times.length
       ? [...times].sort().map((t) => `<span class="chip${enabled && next?.time === t ? ' next' : ''}"${enabled && next?.time === t ? ' title="Bữa kế tiếp"' : ''}>${esc(t)}<button data-del="${esc(t)}" aria-label="Xoá giờ ${esc(t)}"><svg class="ico"><use href="#i-x"/></svg></button></span>`).join('')
       : '<span class="hint">Chưa có giờ nào.</span>';
+    // Trạng thái cập nhật 2 giây/lần: chỉ vẽ lại khi lịch thật sự đổi, để không mất nút đang bấm/đang chọn
+    const box = $('#sched-chips');
+    if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
   }
   $('#sched-chips').addEventListener('click', (e) => {
     const b = e.target.closest('[data-del]');
@@ -705,18 +723,29 @@
     }
   }, true);
 
+  // Khẩu phần nhả khi camera nhận ra bé
+  const commonGram = () => S.device?.settings?.targetGram ?? 30;
+  const portionText = (p) => p.portionGram ? `${p.portionGram} g/lần` : `${commonGram()} g/lần (chung)`;
+
+  // Danh sách trống vì đang tìm kiếm khác với chưa có bé nào
+  function emptyPetsText() {
+    const q = $('#pet-search').value.trim();
+    return q
+      ? `<li class="empty">Không tìm thấy bé nào khớp “${esc(q)}”.</li>`
+      : '<li class="empty">Chưa có thú cưng nào. Bấm "Thêm thú cưng" để bắt đầu.</li>';
+  }
+
   function renderPets() {
-    const feederId = S.device?.settings?.feederPetId;
     $('#pet-list').innerHTML = S.pets.length ? S.pets.map((p) => `
       <li class="pet-row" data-id="${esc(p.id)}" aria-selected="${S.selectedPet === p.id}" tabindex="0">
         ${avatar(p)}
-        <div><b>${esc(p.name)}${p.id === feederId ? '<span class="tag">Máy cho ăn</span>' : ''}</b>
+        <div><b>${esc(p.name)}<span class="tag" title="Khẩu phần nhả khi camera nhận ra bé">${portionText(p)}</span></b>
           <small>${esc(p.breed)}, ${esc(p.age)} tuổi, ${esc(Number(p.weight).toFixed(2))} kg, ${p.gender === 'MALE' ? 'đực' : 'cái'}</small></div>
         <div class="row-actions">
           <button class="icon-btn" data-edit="${esc(p.id)}" aria-label="Sửa ${esc(p.name)}"><svg class="ico"><use href="#i-edit"/></svg></button>
           <button class="icon-btn" data-delete="${esc(p.id)}" aria-label="Xoá ${esc(p.name)}"><svg class="ico"><use href="#i-trash"/></svg></button>
         </div>
-      </li>`).join('') : '<li class="empty">Chưa có thú cưng nào. Bấm "Thêm thú cưng" để bắt đầu.</li>';
+      </li>`).join('') : emptyPetsText();
     renderPetSelects();
   }
 
@@ -756,26 +785,33 @@
         api(`/api/v1/health/${id}/food/daily?days=7`),
         api(`/api/v1/health/${id}/weight`),
       ]);
-      const cls = h.healthScore >= 90 ? '' : h.healthScore >= 75 ? 'mid' : 'low';
-      const isFeeder = S.device?.settings?.feederPetId === id;
+      const scored = h.hasFeedingData !== false;
+      const cls = !scored ? 'none' : h.healthScore >= 90 ? '' : h.healthScore >= 75 ? 'mid' : 'low';
+      const dwText = h.weightCompared === false ? '–' : `${h.weightChangeKg > 0 ? '+' : ''}${nf(h.weightChangeKg)} kg`;
       box.innerHTML = `
         <div class="pd-head">${avatar(p)}
           <div><h2>${esc(p.name)}</h2><p class="hint">${esc(p.breed)}, ${esc(p.age)} tuổi, ${p.neutered ? 'đã triệt sản' : 'chưa triệt sản'}</p></div>
-          <div class="score ${cls}" title="Điểm sức khoẻ">${h.healthScore}</div>
+          <div class="score ${cls}" title="${scored ? 'Điểm sức khoẻ' : 'Chưa đủ dữ liệu để chấm điểm'}">${scored ? h.healthScore : '–'}</div>
         </div>
         <div class="mini-stats">
           <div><b>${Math.round(h.dailyAvgFoodGram)} g</b><span>ăn/ngày (nên ~${h.expectedDailyFoodGram} g)</span></div>
           <div><b>${h.weeklyLitterVisits}</b><span>lần vệ sinh/tuần</span></div>
-          <div><b>${h.weightChangeKg > 0 ? '+' : ''}${h.weightChangeKg} kg</b><span>so với lần cân trước</span></div>
+          <div><b>${dwText}</b><span>so với lần cân trước</span></div>
         </div>
         <div class="pd-sec"><h3>${esc(h.status)}</h3><ul class="notes">${(h.notes || []).map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>
         <div class="pd-sec"><h3>Lượng ăn 7 ngày</h3><div class="bars" id="pd-bars"></div></div>
         <div class="pd-sec"><h3>Cân nặng</h3>${sparkline(weights)}</div>
-        <button class="btn ${isFeeder ? 'btn-quiet' : ''}" id="pd-feeder" ${isFeeder ? 'disabled' : ''}>
-          <svg class="ico"><use href="#i-bowl"/></svg>${isFeeder ? 'Bé đang dùng máy cho ăn' : 'Gán bé cho máy cho ăn'}</button>`;
+        <div class="pd-portion">
+          <svg class="ico"><use href="#i-bowl"/></svg>
+          <div><b>Camera nhận ra ${esc(p.name)} → nhả ${p.portionGram ? `${p.portionGram} g` : `${commonGram()} g (khẩu phần chung)`}</b>
+            <small>Chỉ nhả khi bật "Khi mèo đến gần" và khay dưới 10 g</small></div>
+          <button class="btn btn-sm" id="pd-portion">Đổi khẩu phần</button>
+        </div>`;
       renderBars($('#pd-bars'), daily);
-      const fb = $('#pd-feeder');
-      if (fb && !isFeeder) fb.addEventListener('click', async () => { await saveSettings({ feederPetId: id }); renderPets(); selectPet(id); });
+      $('#pd-portion').addEventListener('click', () => {
+        openPetDialog(p);
+        setTimeout(() => $('#pet-form').portionGram.focus(), 50);
+      });
     } catch (e) {
       box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
     }
@@ -805,7 +841,9 @@
     if (p) {
       f.name.value = p.name; f.breed.value = p.breed; f.age.value = p.age; f.weight.value = p.weight;
       f.gender.value = p.gender; f.neutered.value = String(p.neutered); f.imageUrl.value = p.imageUrl || '';
+      f.portionGram.value = p.portionGram ?? '';
     }
+    f.portionGram.placeholder = `Bỏ trống = khẩu phần chung (${S.device?.settings?.targetGram ?? 30} g)`;
     $('#pet-dialog').showModal();
   }
   $('#pet-add').addEventListener('click', () => openPetDialog(null));
@@ -818,6 +856,10 @@
       name: f.name.value.trim(), breed: f.breed.value.trim(), age: Number(f.age.value), weight: Number(f.weight.value),
       gender: f.gender.value, neutered: f.neutered.value === 'true', imageUrl: f.imageUrl.value.trim(),
     };
+    // Khẩu phần riêng: bỏ trống = khẩu phần chung (khi sửa gửi 0 để xoá khẩu phần riêng cũ)
+    const portion = f.portionGram.value.trim();
+    if (portion) body.portionGram = Number(portion);
+    else if (editingId) body.portionGram = 0;
     try {
       await api(editingId ? `/api/v1/pets/${editingId}` : '/api/v1/pets', { method: editingId ? 'PUT' : 'POST', body });
       $('#pet-dialog').close();
@@ -836,9 +878,23 @@
     const keep = ai.value;
     ai.innerHTML = '<option value="">Chung</option>' + opts;
     if (keep) ai.value = keep;
+    renderFeederSelect();
+  }
+
+  // Ô "Bé được ghi nhật ký": nếu máy đang gán cho bé của tài khoản khác thì nói rõ thay vì để trống
+  function renderFeederSelect() {
     const fs = $('#feeder-pet-select');
-    fs.innerHTML = opts || '<option value="">Chưa có thú cưng</option>';
-    if (S.device?.settings?.feederPetId) fs.value = S.device.settings.feederPetId;
+    const set = S.device?.settings || {};
+    const own = S.pets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    const placeholder = set.feederPetOfOtherUser
+      ? '<option value="" disabled>Bé của tài khoản khác</option>'
+      : !set.feederPetId ? '<option value="" disabled>Chưa gán bé nào</option>' : '';
+    const html = (placeholder + own) || '<option value="">Chưa có thú cưng</option>';
+    if (fs.dataset.html !== html) { fs.innerHTML = html; fs.dataset.html = html; }
+    fs.value = set.feederPetId || '';
+    if (!set.feederPetId && placeholder) fs.selectedIndex = 0;
+    $('#feeder-pet-hint').textContent = set.feederPetOfOtherUser
+      ? 'Bé mặc định hiện là bé của tài khoản khác. Chọn bé của bạn để chuyển sang.' : '';
   }
 
   // ------------------------------------------------------------------ lịch sử
@@ -944,6 +1000,7 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden && token) { refreshState(); camLoop(); } });
   setAuthMode('login');
   renderServerLabel();
+  if (API) loadServerInfo();
   if (token && API) enterApp();
   else $('#auth').hidden = false;
 })();

@@ -29,7 +29,10 @@ Cấu hình bằng biến môi trường:
   Nhận diện (YOLOv8):
     YOLO_MODEL         đường dẫn model, mặc định yolov8n.pt cạnh script
     YOLO_IMGSZ         kích thước ảnh đưa vào model, mặc định 640 (Pi 4 nên dùng 320 cho nhanh)
-    CAT_CONFIDENCE     ngưỡng tin cậy, mặc định 0.6
+    CAT_CONFIDENCE     ngưỡng tin cậy, mặc định 0.4 (cao hơn = chỉ nhận mèo ở gần/rõ)
+    CROP_MARGIN        cắt rộng quanh khung mèo trước khi đọc tên bé, mặc định 0.3 (30% mỗi phía)
+    Tầm nhìn xa phụ thuộc kích thước ảnh của yolov8n.onnx (xuất bằng export_onnx.py --imgsz,
+    mặc định 640; 416 nhẹ hơn ~2 lần nếu Pi chạy chậm)
     CAT_STABLE_FRAMES  số lần nhận diện liên tiếp để đổi trạng thái, mặc định 3
     CAT_ROI            vùng quan sát "x1,y1,x2,y2" theo pixel của khung CAMERA_WIDTH x CAMERA_HEIGHT
                        (bỏ trống = cả khung hình). Tâm con mèo phải nằm trong vùng này.
@@ -37,6 +40,10 @@ Cấu hình bằng biến môi trường:
                        vd. 0.05 = 5%. Mặc định 0 = thấy là tính.
     SCAN_INTERVAL      giây giữa 2 lần nhận diện, mặc định 0.5
     REPORT_INTERVAL    khi mèo vẫn ở đó, nhắc lại tối đa mỗi N giây, mặc định 10
+    HEARTBEAT_INTERVAL khi không có mèo, vẫn báo "camera đang chạy" mỗi N giây, mặc định 15
+                       (backend dựa vào đây để ESP32 không tự nhả theo cảm biến mà chờ camera
+                       nhận ra bé rồi nhả đúng khẩu phần của bé đó)
+    AI_ENABLED=0       chỉ phát hình trực tiếp, không nhận diện mèo (khi YOLO/PyTorch lỗi trên máy này)
     SHOW_PREVIEW=1     mở cửa sổ xem trước trên máy (cần opencv-python, không phải bản headless).
                        Nhấn q để thoát.
 
@@ -105,15 +112,39 @@ _DEFAULT_MODEL = Path(__file__).resolve().parent / "yolov8n.pt"
 YOLO_MODEL = os.getenv("YOLO_MODEL", "").strip() or (str(_DEFAULT_MODEL) if _DEFAULT_MODEL.exists() else "yolov8n.pt")
 YOLO_IMGSZ = int(os.getenv("YOLO_IMGSZ", "640"))
 CAT_CLASS_ID = 15            # lớp "cat" trong bộ COCO của YOLOv8
-CAT_CONFIDENCE = _env_float("CAT_CONFIDENCE", 0.6)
+# 0.4: nhận được mèo ở xa hơn nhiều so với 0.6 (đo thử: mèo chiếm 20% bề ngang khung 11/45 -> 37/45 ảnh),
+# không lo báo nhầm vì vẫn phải thấy CAT_STABLE_FRAMES lần liên tiếp
+CAT_CONFIDENCE = _env_float("CAT_CONFIDENCE", 0.4)
+# Cắt rộng thêm tỉ lệ này mỗi phía quanh khung mèo trước khi đọc tên bé (giúp đọc đúng hơn khi mèo ở xa)
+CROP_MARGIN = max(0.0, _env_float("CROP_MARGIN", 0.3))
 STABLE_FRAMES = max(1, int(os.getenv("CAT_STABLE_FRAMES", "3")))
 CAT_ROI = _parse_roi(os.getenv("CAT_ROI", ""))
 CAT_NEAR_AREA = max(0.0, _env_float("CAT_NEAR_AREA", 0))
 TORCH_THREADS = max(1, int(os.getenv("TORCH_THREADS", str(max(1, (os.cpu_count() or 2) // 2)))))
 
+# Nhận diện từng bé mèo cụ thể (Cat Identification / Classifier)
+_DEFAULT_CLASSIFIER_DIR = Path(__file__).resolve().parent / "models"
+_DEFAULT_CLASSIFIER = _DEFAULT_CLASSIFIER_DIR / "cat_classifier.pt"
+_DEFAULT_CLASSIFIER_ONNX = _DEFAULT_CLASSIFIER_DIR / "cat_classifier.onnx"
+CAT_CLASSIFIER_MODEL = os.getenv("CAT_CLASSIFIER_PATH", "").strip()
+if not CAT_CLASSIFIER_MODEL:
+    if _DEFAULT_CLASSIFIER_ONNX.exists():
+        CAT_CLASSIFIER_MODEL = str(_DEFAULT_CLASSIFIER_ONNX)
+    elif _DEFAULT_CLASSIFIER.exists():
+        CAT_CLASSIFIER_MODEL = str(_DEFAULT_CLASSIFIER)
+CAT_CLASSIFIER_CONF = _env_float("CAT_CLASSIFIER_CONF", 0.65)
+# Cách chạy mô hình: auto (mặc định) | onnx (ONNX Runtime, không cần PyTorch) | torch (ultralytics)
+INFERENCE = os.getenv("INFERENCE", "auto").strip().lower()
+ONNX_DETECTOR = os.getenv("ONNX_DETECTOR", "").strip() or str(Path(__file__).resolve().parent / "yolov8n.onnx")
+ONNX_CLASSIFIER = os.getenv("ONNX_CLASSIFIER", "").strip() or str(_DEFAULT_CLASSIFIER_ONNX)
+DEMO_PET_NAME = os.getenv("DEMO_PET_NAME", "").strip()
+
 SCAN_INTERVAL = max(0.1, _env_float("SCAN_INTERVAL", 0.5))
 REPORT_INTERVAL = _env_float("REPORT_INTERVAL", 10)
+HEARTBEAT_INTERVAL = _env_float("HEARTBEAT_INTERVAL", 15)
 SHOW_PREVIEW = os.getenv("SHOW_PREVIEW", "0") in ("1", "true", "True")
+# 0 = chỉ phát hình trực tiếp, không chạy YOLO (vd. PyTorch lỗi "Illegal instruction" trên Pi 4)
+AI_ENABLED = os.getenv("AI_ENABLED", "1") not in ("0", "false", "False")
 WINDOW_NAME = "AuraPet - Cat Detection"
 # ------------------------------------------------------------------
 
@@ -126,41 +157,118 @@ STREAM_ON = bool(AURAPET_SERVER and CAMERA_KEY)
 
 # --------------------------- NHẬN DIỆN ----------------------------
 class CatDetector:
-    """YOLOv8: chỉ giữ lớp mèo, đủ tin cậy, tâm nằm trong ROI và đủ to (mèo ở gần)."""
+    """
+    Phát hiện mèo (detector) + phân loại danh tính từng bé (classifier nếu có).
+    Hai cách chạy (INFERENCE):
+      onnx  : ONNX Runtime, không cần PyTorch (Raspberry Pi 4: PyTorch mới lỗi "Illegal instruction")
+      torch : ultralytics + PyTorch (laptop, Pi 5)
+      auto  : (mặc định) có onnxruntime + yolov8n.onnx thì dùng onnx, không thì torch
+    """
 
     def __init__(self):
+        self.onnx = None
+        self.model = None
+        self.classifier = None
+        mode = INFERENCE
+        if mode == "auto":
+            import onnx_infer
+            mode = "onnx" if (onnx_infer.available() and Path(ONNX_DETECTOR).exists()) else "torch"
+        if mode == "onnx":
+            self._init_onnx()
+        else:
+            self._init_torch()
+        if self.classifier is None and (self.onnx is None or self.onnx.cls is None) and DEMO_PET_NAME:
+            print(f"[AI] Đang chạy chế độ mô phỏng nhận diện bé: '{DEMO_PET_NAME}'")
+
+    def _init_onnx(self):
+        import onnx_infer
+        if not onnx_infer.available():
+            sys.exit("Chưa cài onnxruntime: pip install -r requirements.txt")
+        if not Path(ONNX_DETECTOR).exists():
+            sys.exit(f"Thiếu {ONNX_DETECTOR}. Xuất trên máy tính bằng export_onnx.py rồi chép sang Pi.")
+        cls_path = ONNX_CLASSIFIER if Path(ONNX_CLASSIFIER).exists() else None
+        print(f"[AI] ONNX Runtime: {ONNX_DETECTOR}" + (f" + {cls_path}" if cls_path else "")
+              + f" (dùng {TORCH_THREADS} nhân CPU, không cần PyTorch)")
+        self.onnx = onnx_infer.OnnxCatDetector(ONNX_DETECTOR, cls_path, threads=TORCH_THREADS)
+        print(f"[AI] Ảnh vào detector {self.onnx.det_w}x{self.onnx.det_h}")
+        if self.onnx.cls is not None:
+            print(f"[AI] Đã kích hoạt nhận diện riêng từng bé: {self.onnx.names}")
+
+    def _init_torch(self):
         try:
             from ultralytics import YOLO
         except ImportError:
-            sys.exit("Chưa cài ultralytics: pip install -r firmware/raspberry_pi/requirements.txt")
+            sys.exit("Chưa cài ultralytics (hoặc dùng ONNX: pip install onnxruntime + chép yolov8n.onnx)")
         try:
             import torch
             torch.set_num_threads(TORCH_THREADS)  # chừa nhân CPU cho luồng hình trực tiếp
         except Exception:
             pass
-        print(f"[AI] Đang tải mô hình {YOLO_MODEL} (dùng {TORCH_THREADS} nhân CPU) ...")
+        print(f"[AI] PyTorch: đang tải mô hình detector {YOLO_MODEL} (dùng {TORCH_THREADS} nhân CPU) ...")
         self.model = YOLO(YOLO_MODEL)
+        if CAT_CLASSIFIER_MODEL and Path(CAT_CLASSIFIER_MODEL).exists():
+            print(f"[AI] Đang tải mô hình phân loại bé mèo: {CAT_CLASSIFIER_MODEL} ...")
+            try:
+                self.classifier = YOLO(CAT_CLASSIFIER_MODEL)
+                names = list(self.classifier.names.values()) if hasattr(self.classifier, "names") else []
+                print(f"[AI] Đã kích hoạt nhận diện riêng từng bé: {names}")
+            except Exception as e:
+                print(f"[AI] Cảnh báo: Không tải được classifier: {e}")
+
+    def classify_crop(self, crop):
+        """Phân loại bé mèo cụ thể từ vùng ảnh đã cắt."""
+        if crop.size > 0:
+            try:
+                if self.onnx is not None and self.onnx.cls is not None:
+                    name, conf = self.onnx.classify(crop)
+                    if conf >= CAT_CLASSIFIER_CONF:
+                        return name, conf
+                elif self.classifier is not None:
+                    res = self.classifier(crop, imgsz=224, verbose=False)
+                    if res and hasattr(res[0], "probs") and res[0].probs is not None:
+                        conf = float(res[0].probs.top1conf)
+                        if conf >= CAT_CLASSIFIER_CONF:
+                            return res[0].names[int(res[0].probs.top1)], conf
+            except Exception:
+                pass
+        if DEMO_PET_NAME:
+            return DEMO_PET_NAME, 0.95
+        return "Meo", 0.0
+
+    def _raw_cats(self, frame):
+        """[(x1, y1, x2, y2, độ tin cậy)] các con mèo trong khung hình."""
+        if self.onnx is not None:
+            return self.onnx.detect_cats(frame, CAT_CONFIDENCE)
+        out = []
+        for result in self.model(frame, imgsz=YOLO_IMGSZ, conf=CAT_CONFIDENCE, classes=[CAT_CLASS_ID], verbose=False):
+            for box in result.boxes:
+                if int(box.cls[0]) == CAT_CLASS_ID:
+                    x1, y1, x2, y2 = (float(v) for v in box.xyxy[0])
+                    out.append((x1, y1, x2, y2, float(box.conf[0])))
+        return out
 
     def detect(self, frame):
-        """Trả về (có_mèo, độ_tin_cậy_cao_nhất, danh_sách_khung [(x, y, w, h, conf)])."""
+        """Trả về (có_mèo, độ_tin_cậy_cao_nhất, danh_sách_khung, tên_bé_nổi_bật)."""
         h, w = frame.shape[:2]
-        results = self.model(frame, imgsz=YOLO_IMGSZ, conf=CAT_CONFIDENCE, classes=[CAT_CLASS_ID], verbose=False)
         boxes = []
-        for result in results:
-            for box in result.boxes:
-                if int(box.cls[0]) != CAT_CLASS_ID:
-                    continue
-                conf = float(box.conf[0])
-                if conf < CAT_CONFIDENCE:
-                    continue
-                x1, y1, x2, y2 = (float(v) for v in box.xyxy[0])
-                if not _in_roi((x1 + x2) / 2.0, (y1 + y2) / 2.0):
-                    continue
-                if (x2 - x1) * (y2 - y1) < CAT_NEAR_AREA * w * h:
-                    continue  # mèo còn ở xa
-                boxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1), conf))
+        for x1, y1, x2, y2, conf in self._raw_cats(frame):
+            if conf < CAT_CONFIDENCE:
+                continue
+            if not _in_roi((x1 + x2) / 2.0, (y1 + y2) / 2.0):
+                continue
+            if (x2 - x1) * (y2 - y1) < CAT_NEAR_AREA * w * h:
+                continue  # mèo còn ở xa
+
+            # Cắt vùng ảnh con mèo (nới rộng thêm CROP_MARGIN mỗi phía) để nhận diện danh tính cụ thể
+            mx, my = (x2 - x1) * CROP_MARGIN, (y2 - y1) * CROP_MARGIN
+            crop = frame[max(0, int(y1 - my)):min(h, int(y2 + my)), max(0, int(x1 - mx)):min(w, int(x2 + mx))]
+            cat_name, cat_conf = self.classify_crop(crop)
+            boxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1), conf, cat_name, cat_conf))
+
         best = max((b[4] for b in boxes), default=0.0)
-        return bool(boxes), best, boxes
+        named = [b for b in boxes if b[5] != "Meo" and b[5] != ""]
+        best_name = max(named, key=lambda b: b[6])[5] if named else (boxes[0][5] if boxes else "")
+        return bool(boxes), best, boxes, best_name
 
 
 def _in_roi(x, y):
@@ -180,6 +288,7 @@ class DetectionWorker(threading.Thread):
         self.q = queue.Queue(maxsize=1)
         self.lock = threading.Lock()
         self.found, self.conf, self.boxes = False, 0.0, []
+        self.pet_name = ""
         self.present, self.streak, self.last_report = False, 0, 0.0
 
     def offer(self, frame):
@@ -191,29 +300,34 @@ class DetectionWorker(threading.Thread):
 
     def latest(self):
         with self.lock:
-            return self.found, self.conf, list(self.boxes), self.present
+            return self.found, self.conf, list(self.boxes), self.present, self.pet_name
 
     def run(self):
         while True:
             frame = self.q.get()
             try:
-                found, conf, boxes = self.detector.detect(frame)
+                found, conf, boxes, pet_name = self.detector.detect(frame)
             except Exception as e:
                 print(f"[AI] Lỗi nhận diện: {e}")
                 continue
             now = time.time()
             with self.lock:
                 self.found, self.conf, self.boxes = found, conf, boxes
+                self.pet_name = pet_name if found else ""
                 self.streak = self.streak + 1 if found != self.present else 0
                 changed = self.streak >= STABLE_FRAMES
                 if changed:
                     self.present, self.streak = found, 0
-                remind = not changed and self.present and now - self.last_report > REPORT_INTERVAL
+                # Có mèo: nhắc lại mỗi REPORT_INTERVAL. Không có mèo: vẫn báo camera còn sống (heartbeat)
+                interval = REPORT_INTERVAL if self.present else HEARTBEAT_INTERVAL
+                remind = not changed and now - self.last_report > interval
                 present = self.present
+                current_pet = self.pet_name
                 if changed or remind:
                     self.last_report = now
             if changed or remind:
-                publish(self.client, present, conf if present else 0.0)
+                publish(self.client, present, conf if present else 0.0, current_pet,
+                        quiet=remind and not present)
 
 
 # ----------------------------- MQTT -------------------------------
@@ -230,11 +344,19 @@ def make_client():
     return client
 
 
-def publish(client, cat_present, confidence):
-    payload = json.dumps({"catPresent": cat_present, "confidence": round(confidence, 2),
-                          "source": "pi-camera-yolov8", "ts": int(time.time())})
+def publish(client, cat_present, confidence, pet_name="", quiet=False):
+    payload = json.dumps({
+        "catPresent": cat_present,
+        "petName": pet_name if cat_present else "",
+        "confidence": round(confidence, 2),
+        "source": "pi-camera-yolov8",
+        "ts": int(time.time())
+    })
     client.publish(VISION_TOPIC, payload, qos=0)
-    print(("[Camera] MÈO ĐẾN GẦN" if cat_present else "[Camera] Mèo đã rời đi"), f"(độ tin cậy {confidence:.2f})")
+    if quiet:
+        return  # heartbeat lúc không có mèo: không in log
+    who = f" [{pet_name}]" if pet_name and pet_name != "Meo" else ""
+    print(("[Camera] MÈO ĐẾN GẦN" if cat_present else "[Camera] Mèo đã rời đi") + who, f"(độ tin cậy {confidence:.2f})")
 
 
 # ------------------------- HÌNH TRỰC TIẾP -------------------------
@@ -251,12 +373,12 @@ class FrameUploader(threading.Thread):
         self.ok = None
         self.sent = 0  # số khung đã gửi thành công (để in tốc độ thực tế)
 
-    def offer(self, jpeg, cat, conf):
+    def offer(self, jpeg, cat, conf, pet_name=""):
         try:
             self.q.get_nowait()  # bỏ khung cũ chưa kịp gửi
         except queue.Empty:
             pass
-        self.q.put_nowait((jpeg, cat, conf))
+        self.q.put_nowait((jpeg, cat, conf, pet_name))
 
     def _close(self):
         if self.conn is not None:
@@ -285,12 +407,13 @@ class FrameUploader(threading.Thread):
 
     def run(self):
         while True:
-            jpeg, cat, conf = self.q.get()
+            jpeg, cat, conf, pet_name = self.q.get()
             headers = {
                 "Content-Type": "image/jpeg",
                 "X-Camera-Key": CAMERA_KEY,
                 "X-Cat-Present": "true" if cat else "false",
                 "X-Cat-Confidence": f"{conf:.2f}",
+                "X-Cat-Name": pet_name if cat else "",
             }
             try:
                 status = self._post(jpeg, headers)
@@ -322,10 +445,16 @@ def annotate(frame, boxes, max_width=None):
     if CAT_ROI is not None:
         x1, y1, x2, y2 = (int(v * scale) for v in CAT_ROI)
         cv2.rectangle(out, (x1, y1), (x2, y2), (200, 120, 60), 1)
-    for (x, y, bw, bh, conf) in boxes:
-        x, y, bw, bh = int(x * scale), int(y * scale), int(bw * scale), int(bh * scale)
+    for b in boxes:
+        x, y, bw, bh = int(b[0] * scale), int(b[1] * scale), int(b[2] * scale), int(b[3] * scale)
+        conf = b[4]
+        cat_name = b[5] if len(b) > 5 else "Meo"
+        cat_conf = b[6] if len(b) > 6 else conf
         cv2.rectangle(out, (x, y), (x + bw, y + bh), (80, 200, 120), 2)
-        label = f"Meo {int(conf * 100)}%"
+        if cat_name and cat_name != "Meo":
+            label = f"{cat_name} {int(cat_conf * 100)}%"
+        else:
+            label = f"Meo {int(conf * 100)}%"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
         cv2.rectangle(out, (x, max(0, y - th - 8)), (x + tw + 8, y), (80, 200, 120), -1)
         cv2.putText(out, label, (x + 4, max(th, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 40, 30), 1, cv2.LINE_AA)
@@ -362,16 +491,21 @@ def open_camera():
 
 # ------------------------------------------------------------------
 def main():
-    detector = CatDetector()
+    detector = CatDetector() if AI_ENABLED else None
     client = make_client()
     print(f"[MQTT] Kết nối {MQTT_HOST}:{MQTT_PORT} (TLS={MQTT_TLS}) ...")
     client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=30)
     client.loop_start()
 
-    worker = DetectionWorker(detector, client)
-    worker.start()
-    print(f"[AI] Ngưỡng {CAT_CONFIDENCE} | {STABLE_FRAMES} lần liên tiếp | ROI {CAT_ROI or 'cả khung'}"
-          f" | mèo chiếm >= {CAT_NEAR_AREA:.0%} khung | quét mỗi {SCAN_INTERVAL:g}s")
+    worker = None
+    if detector is not None:
+        worker = DetectionWorker(detector, client)
+        worker.start()
+        print(f"[AI] Ngưỡng {CAT_CONFIDENCE} | {STABLE_FRAMES} lần liên tiếp | ROI {CAT_ROI or 'cả khung'}"
+              f" | mèo chiếm >= {CAT_NEAR_AREA:.0%} khung | quét mỗi {SCAN_INTERVAL:g}s")
+    else:
+        print("[AI] TẮT (AI_ENABLED=0): chỉ phát hình trực tiếp, không nhận diện mèo, không tự cho ăn bằng camera."
+              " ESP32 vẫn tự cho ăn bằng cảm biến như bình thường.")
 
     uploader = None
     if STREAM_ON:
@@ -417,19 +551,20 @@ def main():
             if frame.shape[1] != CAMERA_WIDTH or frame.shape[0] != CAMERA_HEIGHT:
                 frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))  # để ROI luôn đúng toạ độ
 
-            if t0 - last_scan >= SCAN_INTERVAL:
+            if worker is not None and t0 - last_scan >= SCAN_INTERVAL:
                 last_scan = t0
                 worker.offer(frame)
 
             if uploader is not None or preview:
-                found, _, boxes, present = worker.latest()
+                found, _, boxes, present, pet_name = (worker.latest() if worker is not None
+                                                      else (False, 0.0, [], False, ""))
                 shown = boxes if found else []
                 if uploader is not None:
                     img = annotate(frame, shown, STREAM_WIDTH)
                     ok_jpg, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
                     if ok_jpg:
                         best = max((b[4] for b in boxes), default=0.0)
-                        uploader.offer(buf.tobytes(), present, best if present else 0.0)
+                        uploader.offer(buf.tobytes(), present, best if present else 0.0, pet_name)
                 if preview:
                     try:
                         cv2.imshow(WINDOW_NAME, annotate(frame, shown))

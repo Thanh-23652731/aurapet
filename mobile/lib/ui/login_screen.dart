@@ -23,6 +23,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _checking = false;
   String? _localError;
 
+  /// Chỉ hiện nút "Dùng thử" khi máy chủ bật dữ liệu mẫu (AURAPET_DEMO_DATA=true).
+  bool _demo = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final client = ref.read(apiClientProvider);
+    if (client.hasServer) _loadServerInfo(client.baseUrl);
+  }
+
+  Future<void> _loadServerInfo(String url) async {
+    final info = await ref.read(apiClientProvider).serverInfo(url);
+    if (!mounted) return;
+    setState(() => _demo = info?['demoData'] == true);
+  }
+
   @override
   void dispose() {
     for (final c in [_name, _email, _pass, _server]) {
@@ -48,6 +64,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return false;
     }
     await client.setBaseUrl(url);
+    _loadServerInfo(url);
     return true;
   }
 
@@ -156,7 +173,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         child: Text(busy ? 'Đang xử lý…' : _register ? 'Tạo tài khoản' : 'Đăng nhập'),
                       ),
                     ),
-                    if (!_register) ...[
+                    if (!_register && _demo) ...[
                       const SizedBox(height: 8),
                       Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, children: [
                         Text('Dùng thử:', style: TextStyle(color: context.muted, fontSize: 13)),
