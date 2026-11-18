@@ -54,6 +54,18 @@ public class DeviceController {
         return ResponseEntity.ok(ApiResponse.ok(deviceService.tare(CurrentUser.of(user)), "Đã gửi lệnh trừ bì"));
     }
 
+    @PostMapping("/litter/clean")
+    @Operation(summary = "Dọn cát ngay (máy dọn cát)")
+    public ResponseEntity<ApiResponse<DeviceStateDto>> cleanLitter(@AuthenticationPrincipal CustomUserDetails user) {
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.cleanLitter(CurrentUser.of(user)), "Đã gửi lệnh dọn cát"));
+    }
+
+    @PostMapping("/litter/stop")
+    @Operation(summary = "Dừng cào cát ngay")
+    public ResponseEntity<ApiResponse<DeviceStateDto>> stopLitter(@AuthenticationPrincipal CustomUserDetails user) {
+        return ResponseEntity.ok(ApiResponse.ok(deviceService.stopLitter(CurrentUser.of(user)), "Đã gửi lệnh dừng dọn cát"));
+    }
+
     @PutMapping("/settings")
     @Operation(summary = "Cập nhật cài đặt (khẩu phần, tự động, lịch hẹn giờ, mèo của máy)")
     public ResponseEntity<ApiResponse<DeviceStateDto>> settings(@Valid @RequestBody UpdateDeviceSettingsRequest request,

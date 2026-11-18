@@ -93,7 +93,7 @@
   // ------------------------------------------------------------------ giao diện sáng/tối
   function applyTheme(t) {
     document.documentElement.dataset.theme = t;
-    $('meta[name="theme-color"]').content = t === 'dark' ? '#141A17' : '#F6F2EA';
+    $('meta[name="theme-color"]').content = t === 'dark' ? '#151513' : '#F4EFE6';
   }
   applyTheme(store.get('aurapet_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
   $('#theme-btn').addEventListener('click', () => {
@@ -330,6 +330,7 @@
 
   let gramDirty = 0; // thời điểm người dùng vừa chỉnh khẩu phần (để không bị poll ghi đè)
   let feedPendingUntil = 0; // vừa gửi lệnh, chờ ESP32 báo đang nhả
+  let cleanPendingUntil = 0; // vừa gửi lệnh dọn cát, chờ ESP32 báo đang cào
 
   // Giờ hẹn kế tiếp tính theo giờ trên máy người dùng
   function nextMeal(times) {
@@ -400,7 +401,7 @@
       : `${nm.time} <small>${nm.tomorrow ? 'ngày mai' : 'hôm nay'}, dự kiến</small>`;
 
     $('#last-feed').innerHTML = d.lastFeedAt
-      ? `${esc(d.lastFeedGram ?? '?')} g <small>${esc(ago(d.lastFeedAt))}${d.lastFeedSource ? ' · ' + esc(d.lastFeedSource) : ''}</small>`
+      ? `${esc(d.lastFeedGram ?? '?')}${d.lastFeedTargetGram ? ' / ' + esc(d.lastFeedTargetGram) : ''} g <small>${esc(ago(d.lastFeedAt))}${d.lastFeedSource ? ' · ' + esc(d.lastFeedSource) : ''}</small>`
       : '<span class="na">Chưa có</span>';
     const catTxt = d.lastDetectedPetName ? `<span class="ok-t">Bé ${esc(d.lastDetectedPetName)}</span>` : '<span class="ok-t">Có mèo</span>';
     $('#cat-present').innerHTML = !online ? '<span class="na">Không rõ</span>' : d.catPresent ? catTxt : (d.lastDetectedPetName ? `<span class="dim">Vừa thấy ${esc(d.lastDetectedPetName)}</span>` : 'Không');
@@ -408,7 +409,20 @@
     // Nút cho ăn
     const feedBtn = $('#feed-btn');
     feedBtn.disabled = !d.brokerConnected || !online || feeding || pending;
-    $('#feed-btn-text').textContent = pending ? 'Đang gửi lệnh…' : feeding ? `Đang nhả ${S.gram} g…` : `Cho ăn ngay ${S.gram} g`;
+    // Tiến độ: số gam cân đã tăng / số gam lần này cần nhả (ESP32 gửi mỗi giây khi đang nhả)
+    const goal = d.feedGoalGram || S.gram;
+    const added = d.feedAddedGram;
+    const prog = $('#feed-progress');
+    prog.hidden = !feeding;
+    if (feeding) {
+      const pctDone = added == null ? 0 : Math.min(100, Math.round(added / goal * 100));
+      $('#fp-text').textContent = `${added == null ? '–' : Math.round(added)} / ${goal} g`;
+      $('#fp-fill').style.width = pctDone + '%';
+      prog.classList.toggle('done', pctDone >= 95);
+      prog.setAttribute('aria-valuemax', String(goal));
+      if (added != null) prog.setAttribute('aria-valuenow', String(Math.round(added)));
+    }
+    $('#feed-btn-text').textContent = pending ? 'Đang gửi lệnh…' : feeding ? `Đang nhả ${goal} g…` : `Cho ăn ngay ${S.gram} g`;
     $('#stop-btn').hidden = !feeding;
     const hint = $('#feed-hint');
     hint.className = 'dev-note' + (!d.brokerConnected || !online ? ' bad' : '');
@@ -428,15 +442,17 @@
     setSwitch('#sched-sw', set.scheduleEnabled);
     renderSchedule(set.scheduleTimes || [], nm, set.scheduleEnabled);
 
-    // Bình nước (cảm biến siêu âm trên ESP32 máy dọn cát; bơm tuần hoàn chạy liên tục, không điều khiển từ xa)
+    // Bình nước: cảm biến trên ESP32 máy cho ăn (waterSource=feeder) hoặc máy dọn cát (litter).
+    // Bơm tuần hoàn chạy liên tục, không điều khiển từ xa.
     const wOn = d.waterOnline;
+    const wFeeder = d.waterSource === 'feeder';
     const wp = wOn && d.waterSensorOk ? d.waterPercent : null;
     const ws = $('#water-state');
     if (!wOn) setBadge(ws, d.waterLastSeen ? 'bad' : 'off', d.waterLastSeen ? 'Mất tín hiệu' : 'Chưa kết nối');
     else if (!d.waterSensorOk) setBadge(ws, 'warn', 'Lỗi cảm biến');
     else if (d.lowWater) setBadge(ws, 'warn', 'Sắp hết nước');
     else setBadge(ws, 'ok', 'Đủ nước');
-    $('#water-fill').style.width = (wp ?? 0) + '%';
+    $('#water-fill').style.height = (wp ?? 0) + '%';
     $('#water-fill').parentElement.classList.toggle('low', wOn && !!d.lowWater);
     const wpe = $('#water-pct');
     wpe.textContent = wp == null ? 'Không rõ' : `${wp}%`;
@@ -445,15 +461,18 @@
     const wn = $('#water-note');
     wn.className = 'dev-note' + (wOn && d.lowWater ? ' bad' : !wOn && d.waterLastSeen ? ' bad' : '');
     wn.textContent = !wOn ? (d.waterLastSeen
-        ? 'ESP32 máy dọn cát mất kết nối, kiểm tra nguồn điện và Wi-Fi.'
-        : 'Chưa nhận mực nước. Nạp firmware esp32_litter_water cho ESP32 máy dọn cát.')
-      : !d.waterSensorOk ? 'Cảm biến siêu âm không đo được mặt nước, kiểm tra dây TRIG/ECHO.'
+        ? (wFeeder ? 'ESP32 máy cho ăn mất kết nối, kiểm tra nguồn điện và Wi-Fi.' : 'ESP32 máy dọn cát mất kết nối, kiểm tra nguồn điện và Wi-Fi.')
+        : 'Chưa nhận mực nước. Cảm biến nước lắp trên máy cho ăn hoặc máy dọn cát (esp32_litter_water) sẽ tự hiện ở đây.')
+      : !d.waterSensorOk ? (wFeeder ? 'Cảm biến mực nước không đọc được, kiểm tra dây cảm biến (chân 15, 34).'
+        : 'Cảm biến siêu âm không đo được mặt nước, kiểm tra dây TRIG/ECHO.')
       : d.lowWater ? 'Hãy đổ thêm nước để bơm không chạy khô và bé luôn có nước uống.' : '';
 
-    // Khay vệ sinh (cùng ESP32 máy dọn cát với cảm biến nước)
+    // Khay vệ sinh (ESP32 máy dọn cát; không tính số đo nước từ máy cho ăn)
+    const lOn = d.litterOnline ?? (wOn && !wFeeder);
+    const lSeen = d.litterLastSeen !== undefined ? d.litterLastSeen : d.waterLastSeen;
     const LST = { idle: ['ok', 'Sẵn sàng'], cat_inside: ['busy', 'Mèo đang trong khay'], waiting: ['busy', 'Chờ cát vón'], cleaning: ['busy', 'Đang dọn cát'] };
     const lsEl = $('#litter-state');
-    if (!wOn) setBadge(lsEl, d.waterLastSeen ? 'bad' : 'off', d.waterLastSeen ? 'Mất tín hiệu' : 'Chưa kết nối');
+    if (!lOn) setBadge(lsEl, lSeen ? 'bad' : 'off', lSeen ? 'Mất tín hiệu' : 'Chưa kết nối');
     else { const [k, t] = LST[d.litterState] || ['ok', 'Đang hoạt động']; setBadge(lsEl, k, t); }
     $('#litter-last').innerHTML = d.lastLitterVisitAt
       ? `${esc(ago(d.lastLitterVisitAt))} <small>${[d.lastLitterVisitPetName, d.lastLitterVisitSec != null ? durText(d.lastLitterVisitSec) : null].filter(Boolean).map(esc).join(' · ')}</small>`
@@ -462,10 +481,20 @@
     // Có lượt đi vệ sinh mới -> tải lại số liệu của bé (số lần hôm nay, 7 ngày)
     if (S.litterSeen !== undefined && d.lastLitterVisitAt && d.lastLitterVisitAt !== S.litterSeen) loadPetSummary();
     S.litterSeen = d.lastLitterVisitAt || null;
+    // Nút dọn cát thủ công (giống nút cho ăn: đang cào thì hiện thêm nút Dừng)
+    const cleaning = lOn && d.litterState === 'cleaning';
+    const cleanPending = Date.now() < cleanPendingUntil && !cleaning;
+    if (cleaning) cleanPendingUntil = 0;
+    const catInside = lOn && d.litterState === 'cat_inside';
+    $('#clean-btn').disabled = !d.brokerConnected || !lOn || cleaning || cleanPending || catInside;
+    $('#clean-btn-text').textContent = cleanPending ? 'Đang gửi lệnh…' : cleaning ? 'Đang dọn cát…' : 'Dọn cát ngay';
+    $('#clean-stop-btn').hidden = !cleaning;
+    $('#litter-title').closest('.panel').classList.toggle('cleaning-now', cleaning);
     const lnEl = $('#litter-note');
-    lnEl.className = 'dev-note' + (!wOn && d.waterLastSeen ? ' bad' : '');
-    lnEl.textContent = !wOn
-      ? (d.waterLastSeen ? 'ESP32 máy dọn cát mất kết nối, lượt đi vệ sinh sẽ được gửi bù khi có mạng lại.' : 'Chưa nhận dữ liệu từ máy dọn cát. Nạp firmware esp32_litter_water.')
+    lnEl.className = 'dev-note' + (!lOn && lSeen ? ' bad' : '');
+    lnEl.textContent = !lOn
+      ? (lSeen ?'ESP32 máy dọn cát mất kết nối, lượt đi vệ sinh sẽ được gửi bù khi có mạng lại.' : 'Chưa nhận dữ liệu từ máy dọn cát. Nạp firmware esp32_litter_water.')
+      : catInside ? 'Mèo đang ở trong khay, đợi bé ra rồi mới dọn được.'
       : 'Máy tự ghi mỗi lượt bé đi vệ sinh và tự cào cát sau khi bé ra 15 giây.';
 
     renderNotices();
@@ -500,7 +529,7 @@
     const all = s.latestAlerts || [];
     const list = S.actAll ? all : all.slice(0, 5);
     $('#alerts').innerHTML = list.map((a) => `
-      <li class="${esc(a.level)}">
+      <li class="${esc(a.level)} ${esc(a.type)}">
         <span class="tl-ico"><svg class="ico"><use href="#${TYPE_ICO[a.type] || 'i-bolt'}"/></svg></span>
         <span class="tl-msg">${LEVEL[a.level] ? `<span class="tl-lv">${LEVEL[a.level]}</span>` : ''}${esc(a.message)}<time datetime="${esc(a.createdAt)}">${esc(fmtTime(a.createdAt))}</time></span>
       </li>`).join('') || '<li class="empty">Chưa có hoạt động nào.</li>';
@@ -514,6 +543,7 @@
   function renderBars(el, days) {
     const max = Math.max(1, ...days.map((d) => d.gram));
     const last = days.length - 1;
+    el.classList.toggle('bars-none', !days.some((d) => d.gram)); // chưa có bữa nào: hiện chữ thay vì cột trống
     el.innerHTML = days.map((d, i) => `
       <div class="bar ${i === last ? 'today' : ''}" title="${esc(d.date)}: ${d.gram} g, ${d.meals} bữa">
         <b>${d.gram || ''}</b>
@@ -664,6 +694,15 @@
     setTimeout(refreshState, 700);
   });
   $('#stop-btn').addEventListener('click', (e) => command('/api/v1/device/stop', {}, e.currentTarget, 'Đã dừng động cơ'));
+  $('#clean-btn').addEventListener('click', async (e) => {
+    cleanPendingUntil = Date.now() + 6000;
+    renderDevice();
+    const ok = await command('/api/v1/device/litter/clean', {}, e.currentTarget, 'Đã gửi lệnh dọn cát');
+    if (!ok) { cleanPendingUntil = 0; renderDevice(); return; }
+    setTimeout(refreshState, 700);
+    setTimeout(() => { if (cleanPendingUntil) { cleanPendingUntil = 0; renderDevice(); } }, 6100);
+  });
+  $('#clean-stop-btn').addEventListener('click', (e) => command('/api/v1/device/litter/stop', {}, e.currentTarget, 'Đã dừng dọn cát'));
   $('#tare-btn').addEventListener('click', (e) => {
     if (!confirm('Hãy lấy hết hạt ra khỏi khay trước. Trừ bì cân về 0 g ngay bây giờ?')) return;
     command('/api/v1/device/tare', {}, e.currentTarget, 'Đã trừ bì cân');
@@ -845,8 +884,272 @@
     }
     f.portionGram.placeholder = `Bỏ trống = khẩu phần chung (${S.device?.settings?.targetGram ?? 30} g)`;
     $('#pet-dialog').showModal();
+    reidOpen(p);
   }
   $('#pet-add').addEventListener('click', () => openPetDialog(null));
+
+  // ------------------------------------------------------------------ đăng ký nhận diện bé (Re-ID)
+  // Hai cách: (1) bật phiên chụp -> Pi tự cắt con mèo từ khung hình gốc và gửi lên; (2) tải 5-10 ảnh (thu nhỏ trước khi gửi).
+  // Pi định kỳ tải ảnh mẫu về, tính vector đặc trưng (DINOv2) rồi báo lại ảnh nào dùng được.
+  const REID = { petId: null, st: null, poll: null, urls: new Map(), live: false, liveSeq: 0, liveUrl: null, lastResult: null };
+
+  async function rawFetch(path, opts = {}) {
+    const res = await fetch(API + path, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+    if (res.status === 401) { logout('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại'); throw new Error('Phiên đăng nhập đã hết hạn'); }
+    return res;
+  }
+
+  function reidStop() {
+    clearTimeout(REID.poll);
+    REID.poll = null;
+    REID.live = false;
+  }
+
+  function reidOpen(p) {
+    reidStop();
+    REID.urls.forEach((u) => URL.revokeObjectURL(u));
+    REID.urls.clear();
+    REID.petId = p ? p.id : null;
+    REID.st = null;
+    REID.lastResult = null;
+    $('#reid-grid').innerHTML = '';
+    reidRender();
+    if (REID.petId) reidLoad();
+  }
+
+  async function reidLoad() {
+    if (!REID.petId) return;
+    const id = REID.petId;
+    try {
+      const st = await api(`/api/v1/pets/${id}/reid`);
+      if (id === REID.petId) reidSet(st);
+    } catch (e) {
+      $('#reid-hint').textContent = e.message;
+    }
+  }
+
+  function reidSet(st) {
+    const prevActive = REID.st?.capture?.active;
+    REID.st = st;
+    const res = st.capture?.lastResult;
+    if (prevActive && !st.capture.active && res && res !== REID.lastResult) {
+      if (res === 'done') toast('Đã chụp xong. Camera sẽ học trong ít phút.', 'ok');
+      else if (res === 'partial') toast('Hết giờ: camera mới chụp được một phần. Bấm chụp lại để thêm ảnh.', 'err');
+      else if (res === 'timeout') toast('Hết 2 phút mà camera chưa thấy bé. Kiểm tra camera đang bật và bé ở gần.', 'err');
+    }
+    REID.lastResult = res;
+    reidRender();
+    reidSchedule();
+  }
+
+  function reidSchedule() {
+    clearTimeout(REID.poll);
+    const st = REID.st;
+    if (!st || !$('#pet-dialog').open) return;
+    const capturing = st.capture?.active;
+    const waiting = st.photos.some((x) => x.usable == null);
+    if (capturing || waiting) REID.poll = setTimeout(reidLoad, capturing ? 1500 : 4000);
+    if (capturing && !REID.live) reidLive();
+    if (!capturing) REID.live = false;
+  }
+
+  // Hình trực tiếp nhỏ trong lúc chụp để biết bé đã vào khung chưa
+  async function reidLive() {
+    REID.live = true;
+    while (REID.live && $('#pet-dialog').open) {
+      try {
+        const res = await rawFetch(`/api/v1/camera/frame?after=${REID.liveSeq}&wait=1500`, { cache: 'no-store' });
+        if (res.status === 200) {
+          const url = URL.createObjectURL(await res.blob());
+          const img = $('#reid-live-img');
+          const old = REID.liveUrl;
+          img.onload = () => { if (old) URL.revokeObjectURL(old); };
+          img.src = url;
+          REID.liveUrl = url;
+          REID.liveSeq = Number(res.headers.get('X-Frame-Seq')) || REID.liveSeq;
+          await sleep(250);
+        } else {
+          await sleep(1000);
+        }
+      } catch { await sleep(1500); }
+    }
+  }
+
+  function reidRender() {
+    const st = REID.st;
+    const badge = $('#reid-badge');
+    const hint = $('#reid-hint');
+    const cap = st?.capture || {};
+    const full = !!st && st.count >= st.max;
+    $('#reid-capture').disabled = !!cap.active || !!cap.busyWith || full;
+    $('#reid-upload-btn').classList.toggle('disabled', !!cap.active || full);
+    $('#reid-files').disabled = !!cap.active || full;
+
+    if (!st) {
+      badge.className = 'badge';
+      badge.textContent = 'Chưa đăng ký';
+      hint.textContent = REID.petId ? 'Đang tải…'
+        : 'Cho camera học nhận ra bé để nhả đúng khẩu phần của bé. Chọn một trong hai cách (bé sẽ được lưu trước), nên có từ 5 ảnh trở lên.';
+      $('#reid-live').hidden = true;
+      return;
+    }
+    const cam = st.camera || {};
+    const min = st.minRecommended;
+    if (st.count === 0) { badge.className = 'badge'; badge.textContent = 'Chưa đăng ký'; }
+    else if (cam.learned && st.usable >= min) { badge.className = 'badge ok'; badge.textContent = 'Camera đã nhận ra bé'; }
+    else if (cam.learned) { badge.className = 'badge warn'; badge.textContent = 'Đã học, nên thêm ảnh'; }
+    else if (st.count < min) { badge.className = 'badge warn'; badge.textContent = `Cần thêm ${min - st.count} ảnh`; }
+    else { badge.className = 'badge warn'; badge.textContent = 'Chờ camera học'; }
+
+    const parts = [];
+    if (st.count) {
+      const extra = [];
+      if (st.usable) extra.push(`${st.usable} đã học`);
+      if (st.rejected) extra.push(`${st.rejected} không thấy mèo, nên xoá`);
+      parts.push(`${st.count} ảnh mẫu${extra.length ? ` (${extra.join(', ')})` : ''}.`);
+      if (st.count < min) parts.push(`Nên có ít nhất ${min} ảnh ở nhiều góc khác nhau.`);
+    } else {
+      parts.push('Chọn một trong hai cách, nên có từ 5 ảnh trở lên ở nhiều góc (đứng, ngồi, cúi ăn).');
+    }
+    if (cap.busyWith) parts.push(`Camera đang chụp cho ${cap.busyWith}, chờ xong rồi chụp bé này.`);
+    if (!cam.lastSyncAt) {
+      if (st.count) parts.push('Camera (Raspberry Pi) chưa đồng bộ lần nào: cập nhật phần mềm camera và chép models/cat_embedder.onnx sang Pi.');
+    } else if (!cam.ready) {
+      parts.push('Pi đã kết nối nhưng thiếu mô hình nhận diện (models/cat_embedder.onnx).');
+    }
+    if (full) parts.push(`Đã đủ ${st.max} ảnh, xoá bớt nếu muốn thêm.`);
+    hint.textContent = parts.join(' ');
+
+    $('#reid-live').hidden = !cap.active;
+    if (cap.active) {
+      $('#reid-live-fill').style.width = `${cap.target ? Math.round((cap.taken / cap.target) * 100) : 0}%`;
+      $('#reid-live-text').textContent = cap.taken
+        ? `Đã chụp ${cap.taken}/${cap.target}. Cho bé đổi tư thế (quay ngang, ngồi, cúi ăn)…`
+        : 'Đưa bé ra trước camera, gần bát ăn. Camera tự chụp khi thấy bé…';
+    }
+    reidGrid();
+  }
+
+  function reidGrid() {
+    const st = REID.st;
+    const grid = $('#reid-grid');
+    const ids = new Set(st.photos.map((x) => x.id));
+    for (const [id, u] of REID.urls) if (!ids.has(id)) { URL.revokeObjectURL(u); REID.urls.delete(id); }
+    grid.innerHTML = st.photos.map((x) => {
+      const cls = x.usable === false ? 'bad' : (x.usable == null ? 'pending' : '');
+      const title = x.usable === false ? 'Camera không thấy mèo trong ảnh này' : x.usable ? 'Camera đã học ảnh này' : 'Chờ camera học';
+      const src = REID.urls.has(x.id) ? ` src="${REID.urls.get(x.id)}"` : '';
+      return `<li class="${cls}" data-photo="${esc(x.id)}" title="${title}">
+        <img alt="Ảnh mẫu ${x.source === 'camera' ? 'chụp từ camera' : 'tải lên'}"${src}>
+        ${x.source === 'camera' ? '<span class="reid-src">camera</span>' : ''}
+        ${x.usable === false ? '<span class="reid-flag">không thấy mèo</span>' : ''}
+        <button type="button" class="reid-del" data-del-photo="${esc(x.id)}" aria-label="Xoá ảnh"><svg class="ico"><use href="#i-x"/></svg></button>
+      </li>`;
+    }).join('');
+    const pid = REID.petId;
+    st.photos.filter((x) => !REID.urls.has(x.id)).forEach(async (x) => {
+      try {
+        const res = await rawFetch(`/api/v1/pets/${pid}/reid/photos/${x.id}`);
+        if (!res.ok || pid !== REID.petId) return;
+        const u = URL.createObjectURL(await res.blob());
+        REID.urls.set(x.id, u);
+        const img = grid.querySelector(`[data-photo="${CSS.escape(x.id)}"] img`);
+        if (img) img.src = u;
+      } catch { /* bỏ qua ảnh lỗi */ }
+    });
+  }
+
+  // Bé mới chưa có id: lưu bé trước (giống bấm Lưu nhưng giữ hộp thoại mở) rồi mới đăng ký ảnh
+  async function ensurePetSaved() {
+    if (editingId) return editingId;
+    const f = $('#pet-form');
+    if (!f.reportValidity()) throw new Error('Điền thông tin bé trước khi đăng ký ảnh');
+    const body = {
+      name: f.name.value.trim(), breed: f.breed.value.trim(), age: Number(f.age.value), weight: Number(f.weight.value),
+      gender: f.gender.value, neutered: f.neutered.value === 'true', imageUrl: f.imageUrl.value.trim(),
+    };
+    if (f.portionGram.value.trim()) body.portionGram = Number(f.portionGram.value.trim());
+    const pet = await api('/api/v1/pets', { method: 'POST', body });
+    editingId = pet.id;
+    REID.petId = pet.id;
+    $('#pet-dialog-title').textContent = `Sửa ${pet.name}`;
+    toast(`Đã lưu ${pet.name}`, 'ok');
+    loadPets();
+    return pet.id;
+  }
+
+  // Thu nhỏ còn cạnh dài 640 px, đổi sang JPEG (ảnh điện thoại 3-5 MB -> ~60 KB)
+  async function toJpeg(file, max = 640) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const r = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * r);
+      c.height = Math.round(img.naturalHeight * r);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      return await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.88));
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  $('#reid-capture').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+    const id = await ensurePetSaved();
+    REID.liveSeq = 0;
+    reidSet(await api(`/api/v1/pets/${id}/reid/capture`, { method: 'POST', body: { count: 10 } }));
+  }));
+
+  $('#reid-cancel').addEventListener('click', (e) => withBusy(e.currentTarget, async () => {
+    reidSet(await api(`/api/v1/pets/${REID.petId}/reid/capture`, { method: 'DELETE' }));
+  }));
+
+  $('#reid-files').addEventListener('change', async (e) => {
+    const input = e.target;
+    const files = [...input.files].filter((f) => f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp)$/i.test(f.name));
+    input.value = '';
+    if (!files.length) return;
+    await withBusy($('#reid-upload-btn'), async () => {
+      const id = await ensurePetSaved();
+      if (!REID.st) await reidLoad();
+      const room = REID.st ? REID.st.max - REID.st.count : 10;
+      const list = files.slice(0, Math.max(0, Math.min(10, room)));
+      if (files.length > list.length) toast(`Chỉ thêm ${list.length} ảnh (tối đa 10 ảnh mỗi lần, ${REID.st?.max ?? 40} ảnh mỗi bé)`);
+      let ok = 0;
+      let failed = 0;
+      for (const [i, f] of list.entries()) {
+        $('#reid-hint').textContent = `Đang gửi ảnh ${i + 1}/${list.length}…`;
+        try {
+          const blob = await toJpeg(f);
+          const res = await rawFetch(`/api/v1/pets/${id}/reid/photos`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok || json.success === false) throw new Error(json.message || `Lỗi ${res.status}`);
+          ok++;
+        } catch (err) {
+          failed++;
+          if (failed === 1) toast(`Ảnh "${f.name}": ${/decode|EncodingError/i.test(err.message + err.name) ? 'trình duyệt không đọc được ảnh này (thử ảnh JPG/PNG)' : err.message}`, 'err');
+        }
+      }
+      if (ok) toast(`Đã thêm ${ok} ảnh. Camera sẽ học trong ít phút.`, 'ok');
+      await reidLoad();
+    });
+  });
+
+  $('#reid-grid').addEventListener('click', async (e) => {
+    const del = e.target.closest('[data-del-photo]');
+    if (!del) return;
+    await withBusy(del, async () => {
+      reidSet(await api(`/api/v1/pets/${REID.petId}/reid/photos/${del.dataset.delPhoto}`, { method: 'DELETE' }));
+    });
+  });
+
+  // Đóng hộp thoại: ngừng hỏi trạng thái; bé vừa tạo bằng nút đăng ký thì làm mới danh sách
+  $('#pet-dialog').addEventListener('close', () => {
+    reidStop();
+    if (REID.petId) loadPets();
+  });
   $('#pet-form').addEventListener('submit', async (e) => {
     if (e.submitter?.value !== 'save') return;
     e.preventDefault();
@@ -905,7 +1208,9 @@
       renderBars($('#hist-bars'), week);
       const tg = week.reduce((a, d) => a + d.gram, 0);
       const tm = week.reduce((a, d) => a + d.meals, 0);
-      $('#hist-sum').textContent = `Tổng ${tg} g · ${tm} bữa · TB ${Math.round(tg / Math.max(1, week.length))} g/ngày`;
+      $('#hist-sum').textContent = tg ? `Tổng ${tg} g · ${tm} bữa · TB ${Math.round(tg / Math.max(1, week.length))} g/ngày` : '';
+      $('#hist-chart').classList.toggle('no-data', !tg);
+      $('#hist-empty').hidden = !!tg;
       $('#hist-rows').innerHTML = rows.length ? rows.map((r) => `
         <tr><td>${esc(new Date(r.timestamp).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }))}</td>
         <td>${esc(r.petName)}</td><td class="num">${r.foodGram} g</td><td>${esc(r.source || '–')}</td></tr>`).join('')

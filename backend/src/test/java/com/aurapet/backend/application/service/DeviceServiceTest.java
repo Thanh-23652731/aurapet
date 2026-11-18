@@ -31,6 +31,7 @@ class DeviceServiceTest {
     static class FakePublisher implements DeviceCommandPublisher {
         boolean connected = true;
         final List<Map<String, Object>> sent = new ArrayList<>();
+        final List<String> channels = new ArrayList<>();
 
         @Override
         public boolean isConnected() {
@@ -38,8 +39,9 @@ class DeviceServiceTest {
         }
 
         @Override
-        public boolean publishCommand(Map<String, Object> command) {
+        public boolean publish(String channel, Map<String, Object> command) {
             sent.add(command);
+            channels.add(channel);
             return connected;
         }
 
@@ -84,7 +86,7 @@ class DeviceServiceTest {
         CatIdentityTracker catIdentity = new CatIdentityTracker(petRepo);
         feeder = new FeederService(settingsService, feedingRepo, catIdentity, alerts, publisher, mapper);
         WaterMonitorService water = new WaterMonitorService(alerts, mapper);
-        LitterService litter = new LitterService(settingsService, litterRepo, petRepo, water, alerts, mapper);
+        LitterService litter = new LitterService(settingsService, litterRepo, petRepo, water, alerts, publisher, mapper);
         VisionService vision = new VisionService(feeder, catIdentity, petRepo, alerts, mapper);
         service = new DeviceService(feeder, water, litter, vision, settingsService, petRepo);
     }
@@ -156,6 +158,119 @@ class DeviceServiceTest {
 
         send("log", "{\"source\":\"Camera: Mimi\",\"addedGram\":44,\"result\":\"DONE\"}");
         verify(feedingRepo).save(argThat((FeedingLog f) -> f.getPetId().equals(mimi.getId()) && f.getFoodGram() == 44));
+    }
+
+    @Test
+    @DisplayName("ESP32 khởi động lại (báo online, autoMode=false mặc định) -> không tắt Tự động trên web mà gửi lại xuống máy")
+    void rebootDoesNotTurnOffAuto() throws Exception {
+        telemetry(3, false);
+        service.updateSettings(UpdateDeviceSettingsRequest.builder().autoMode(true).build(), ADMIN);
+        publisher.sent.clear();
+
+        send("status", "online");
+        send("telemetry", "{\"weight\":3,\"autoMode\":false,\"isFeeding\":false,\"ip\":\"1.2.3.4\"}");
+
+        assertThat(service.getState().getSettings().getAutoMode()).isTrue();
+        assertThat(publisher.sent).anySatisfy(m -> assertThat(m).containsEntry("action", "AUTO").containsEntry("enabled", true));
+    }
+
+    @Test
+    @DisplayName("Pi gửi direct nhưng ESP32 còn firmware cũ (không hiểu CAT) -> backend vẫn gửi FEED đúng khẩu phần")
+    void visionDirectButOldFirmwareStillFeeds() throws Exception {
+        Pet mimi = Pet.builder().id(UUID.randomUUID()).ownerId(UUID.randomUUID()).name("Mimi").weight(3.5).portionGram(45).build();
+        when(petRepo.findFirstByNameIgnoreCase("Mimi")).thenReturn(Optional.of(mimi));
+        telemetry(3, false); // telemetry kiểu cũ, không có cameraActive
+        service.updateSettings(UpdateDeviceSettingsRequest.builder().autoMode(true).build(), ADMIN);
+        publisher.sent.clear();
+
+        send("vision", "{\"catPresent\":true,\"petName\":\"Mimi\",\"confidence\":0.9,\"direct\":true}");
+
+        assertThat(publisher.sent).anySatisfy(m -> assertThat(m).containsEntry("action", "FEED").containsEntry("gram", 45));
+    }
+
+    @Test
+    @DisplayName("Cảm biến nước trên máy cho ăn (trong telemetry) -> web thấy mực nước, khay vệ sinh vẫn chưa kết nối")
+    void waterFromFeederTelemetry() throws Exception {
+        send("telemetry", "{\"weight\":5,\"isFeeding\":false,\"waterRaw\":1200,\"waterPercent\":60,\"lowWater\":false,\"ip\":\"1.2.3.4\"}");
+        var s = service.getState();
+        assertThat(s.isWaterOnline()).isTrue();
+        assertThat(s.isWaterSensorOk()).isTrue();
+        assertThat(s.getWaterPercent()).isEqualTo(60);
+        assertThat(s.getWaterSource()).isEqualTo("feeder");
+        assertThat(s.isLitterOnline()).isFalse();
+
+        send("telemetry", "{\"weight\":5,\"isFeeding\":false,\"waterPercent\":10,\"lowWater\":true,\"ip\":\"1.2.3.4\"}");
+        assertThat(service.getState().isLowWater()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Mặt nước gợn quanh ngưỡng: chỉ 1 lần 'sắp cạn' + 1 lần 'đã đổ thêm'; cảm biến lỗi thì không báo")
+    void waterAlertsDoNotSpam() throws Exception {
+        String t = "{\"weight\":5,\"isFeeding\":false,\"waterPercent\":%d,\"lowWater\":%s,\"waterSensorOk\":%s,\"ip\":\"1.2.3.4\"}";
+        send("telemetry", t.formatted(16, true, true));
+        for (int i = 0; i < 4; i++) {
+            send("telemetry", t.formatted(31, false, true));
+            send("telemetry", t.formatted(17, true, true));
+        }
+        send("telemetry", t.formatted(-1, false, false)); // cảm biến lỗi
+        send("telemetry", t.formatted(-1, false, false));
+        var msgs = alertMessages();
+        assertThat(msgs.stream().filter(m -> m.startsWith("Bình nước sắp cạn"))).hasSize(1);
+        assertThat(msgs.stream().filter(m -> m.startsWith("Đã đổ thêm nước"))).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Khay cát bỏ cảm biến nước (chỉ gửi litterState) -> khay online, mực nước vẫn lấy từ máy cho ăn")
+    void litterWithoutWaterKeepsFeederWater() throws Exception {
+        send("telemetry", "{\"weight\":5,\"isFeeding\":false,\"waterPercent\":55,\"lowWater\":false,\"ip\":\"1.2.3.4\"}");
+        send("water", "{\"litterState\":\"cat_inside\",\"rssi\":-50,\"ip\":\"1.2.3.9\"}");
+
+        var s = service.getState();
+        assertThat(s.isLitterOnline()).isTrue();
+        assertThat(s.getLitterState()).isEqualTo("cat_inside");
+        assertThat(s.getWaterSource()).isEqualTo("feeder");
+        assertThat(s.getWaterPercent()).isEqualTo(55);
+        assertThat(s.isWaterSensorOk()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Máy cho ăn không lắp cảm biến nước -> bình nước vẫn chưa kết nối")
+    void noWaterFieldsNoWater() throws Exception {
+        telemetry(5, false);
+        assertThat(service.getState().isWaterOnline()).isFalse();
+        assertThat(service.getState().getWaterSource()).isNull();
+    }
+
+    @Test
+    @DisplayName("Đang nhả: web thấy đã nhả X / Y g; xong thì lần cho ăn cuối có cả số gam yêu cầu")
+    void feedProgressAndTarget() throws Exception {
+        send("telemetry", "{\"weight\":15,\"isFeeding\":true,\"feedGoal\":40,\"feedAdded\":12.34,\"ip\":\"1.2.3.4\"}");
+        assertThat(service.getState().getFeedGoalGram()).isEqualTo(40);
+        assertThat(service.getState().getFeedAddedGram()).isEqualTo(12.3);
+
+        send("telemetry", "{\"weight\":40,\"isFeeding\":false,\"ip\":\"1.2.3.4\"}");
+        assertThat(service.getState().getFeedGoalGram()).isNull();
+        send("log", "{\"source\":\"Web\",\"addedGram\":38.6,\"targetGram\":40,\"result\":\"REACHED\"}");
+        assertThat(service.getState().getLastFeedGram()).isEqualTo(39);
+        assertThat(service.getState().getLastFeedTargetGram()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("Pi đã tự gửi lệnh cho ESP32 (direct) -> backend không gửi FEED nữa nhưng vẫn ghi nhật ký cho đúng bé")
+    void visionDirectDoesNotDoubleFeed() throws Exception {
+        Pet mimi = Pet.builder().id(UUID.randomUUID()).ownerId(UUID.randomUUID()).name("Mimi").weight(3.5).portionGram(45).build();
+        when(petRepo.findFirstByNameIgnoreCase("Mimi")).thenReturn(Optional.of(mimi));
+        when(petRepo.findById(mimi.getId())).thenReturn(Optional.of(mimi));
+        // firmware mới: telemetry có cameraActive = hiểu lệnh CAT của Pi
+        send("telemetry", "{\"weight\":3,\"isFeeding\":false,\"cameraActive\":true,\"ip\":\"1.2.3.4\"}");
+        service.updateSettings(UpdateDeviceSettingsRequest.builder().autoMode(true).build(), ADMIN);
+        publisher.sent.clear();
+
+        send("vision", "{\"catPresent\":true,\"petName\":\"Mimi\",\"confidence\":0.9,\"direct\":true}");
+
+        assertThat(publisher.actions()).doesNotContain("FEED");
+        send("log", "{\"source\":\"Camera: Mimi\",\"addedGram\":44,\"result\":\"REACHED\"}");
+        verify(feedingRepo).save(argThat((FeedingLog f) -> f.getPetId().equals(mimi.getId())));
     }
 
     @Test
@@ -255,7 +370,7 @@ class DeviceServiceTest {
         var st = service.getState();
         assertThat(st.getLastLitterVisitSec()).isEqualTo(95);
         assertThat(st.getLastLitterVisitPetName()).isEqualTo("Luna");
-        assertThat(st.isWaterOnline()).isTrue();
+        assertThat(st.isLitterOnline()).isTrue(); // sự kiện khay cát -> máy dọn cát online
     }
 
     @Test
@@ -479,5 +594,25 @@ class DeviceServiceTest {
         send("status","offline");
         assertThat(service.isOnline()).isFalse();
         verify(alertRepo, atLeastOnce()).save(argThat((Alert a) -> a.getMessage().contains("mất kết nối")));
+    }
+
+    @Test
+    @DisplayName("Dọn cát thủ công: gửi CLEAN/STOP tới kênh máy dọn cát, từ chối khi offline hoặc mèo đang trong khay")
+    void manualLitterClean() throws Exception {
+        assertThatThrownBy(() -> service.cleanLitter(ADMIN)).isInstanceOf(DeviceUnavailableException.class);
+
+        send("water", "{\"litterState\":\"cat_inside\"}");
+        assertThatThrownBy(() -> service.cleanLitter(ADMIN)).isInstanceOf(BadRequestException.class);
+
+        send("water", "{\"litterState\":\"idle\"}");
+        publisher.sent.clear();
+        publisher.channels.clear();
+        service.cleanLitter(ADMIN);
+        service.stopLitter(ADMIN);
+        assertThat(publisher.actions()).containsExactly("CLEAN", "STOP");
+        assertThat(publisher.channels).containsOnly(DeviceCommandPublisher.LITTER_CHANNEL);
+
+        send("water", "{\"litterState\":\"cleaning\"}");
+        assertThatThrownBy(() -> service.cleanLitter(ADMIN)).isInstanceOf(BadRequestException.class);
     }
 }

@@ -142,6 +142,8 @@ class DeviceNotifier extends Notifier<DeviceView> {
   Future<String?> feed(int gram) => _run(() => _api.feed(gram), feeding: true);
   Future<String?> stop() => _run(_api.stop);
   Future<String?> tare() => _run(_api.tare);
+  Future<String?> cleanLitter() => _run(_api.cleanLitter);
+  Future<String?> stopLitter() => _run(_api.stopLitter);
   Future<String?> settings(Map<String, dynamic> patch) => _run(() => _api.updateSettings(patch));
 }
 

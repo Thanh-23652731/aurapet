@@ -73,6 +73,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/ping").permitAll()
                         // Raspberry Pi gửi ảnh lên: xác thực bằng X-Camera-Key trong CameraController (không dùng JWT)
                         .requestMatchers(HttpMethod.POST, "/api/v1/camera/frame").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/camera/portions").permitAll()
+                        // Re-ID: Pi gửi ảnh chụp bé, tải ảnh mẫu, báo kết quả học (cũng xác thực bằng X-Camera-Key)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/camera/reid-shot", "/api/v1/camera/reid-report").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/camera/reid-gallery", "/api/v1/camera/reid-photos/*").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

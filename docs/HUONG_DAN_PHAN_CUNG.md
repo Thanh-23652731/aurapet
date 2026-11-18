@@ -14,6 +14,27 @@
 
 Động cơ bước nên dùng nguồn riêng, nối chung GND với ESP32.
 
+### Dùng ESP32-S3 (code `choan_web_nuoc.ino` / `khay_cat.ino`)
+Code tự chọn bảng chân theo board trong Arduino IDE: chọn **Tools → Board → ESP32S3 Dev Module** là dùng chân S3, chọn ESP32 Dev Module là dùng sơ đồ cũ. ESP32-S3 không có GPIO 22–25, GPIO 26–32 nối flash, 33–37 nối PSRAM, ADC chỉ ở GPIO 1–20, nên phải đi lại các dây sau:
+
+| Máy cho ăn | ESP32 cũ | ESP32-S3 |
+|---|---|---|
+| Cảm biến mèo (IR/PIR) | 19 | **6** |
+| Nút Cho ăn / Dừng / Tự động / Trừ bì | 32 / 33 / 25 / 26 | **38 / 39 / 40 / 41** |
+| LED đỏ | 27 | **42** |
+| DIR động cơ | 23 | **12** |
+| LCD SDA / SCL | 21 / 22 | **8 / 9** |
+| Cảm biến nước S (ADC) | 34 | **1** |
+| Giữ nguyên | TRIG 5, ECHO 18, LED xanh 14, STEP 13, EN 17, HX711 DT 16 / SCK 4, nước + 15 | như cũ |
+
+| Máy dọn cát | ESP32 cũ | ESP32-S3 |
+|---|---|---|
+| PIR / STEP / DIR / nút dọn | 32 / 26 / 27 / 33 | **4 / 5 / 6 / 7** |
+| LCD SDA / SCL | 21 / 22 | **8 / 9** |
+| LED đỏ / xanh | 12 / 14 | như cũ |
+
+Nạp lần đầu trên board S3: cắm cổng ghi **COM/UART** (Serial Monitor hiện log ngay). Nếu cắm cổng ghi **USB**, đặt Tools → **USB CDC On Boot: Enabled** thì mới thấy log. Board mới nên cảm biến nước phải hiệu chỉnh lại (`kho` / `day` trong Serial Monitor).
+
 ## 2. Nạp firmware
 
 1. Arduino IDE 2.x → Boards Manager → cài **esp32** (Espressif).
@@ -107,7 +128,8 @@ cd firmware\raspberry_pi
 #   Pi chạy chậm: export_onnx.py --imgsz 416 (nhẹ hơn ~2 lần, tầm nhìn gần hơn)
 cd ..\..
 # Chép đúng các file Pi cần (~20 MB, không chép .venv/.cache/dataset)
-powershell -ExecutionPolicy Bypass -File scripts\copy_to_pi.ps1 -PiHost <IP của Pi> -User <tài khoản Pi>
+#   mặc định nhom4@192.168.99.160; Pi đổi IP thì thêm -PiHost <IP mới> (xem trên Pi: hostname -I)
+powershell -ExecutionPolicy Bypass -File scripts\copy_to_pi.ps1
 ```
 
 ```bash
@@ -158,7 +180,43 @@ python firmware\raspberry_pi\cat_detection_gateway.py
 | `CAT_CLASSIFIER_PATH` | `firmware/raspberry_pi/models/cat_classifier.pt` | Đường dẫn mô hình phân loại từng bé mèo |
 | `DEMO_PET_NAME` | rỗng | Tên bé mèo giả lập để test nhanh tính năng khi chưa kịp train (vd. `Mimi` hay `Tom`) |
 
-### Huấn luyện nhận diện từng bé mèo (Re-ID / Classification)
+### Nhận ra từng bé bằng Feature Embedding (DINOv2 Re-ID) — cách khuyên dùng
+Không cần train: mô hình DINOv2 biến ảnh mèo thành một vector đặc trưng; ảnh cùng một bé cho vector gần nhau.
+Mỗi bé chỉ cần **đăng ký 30–50 ảnh**, thêm bé mới không phải train lại. Camera so ảnh mèo đang đứng trước máy với kho ảnh đã đăng ký (cosine similarity), bỏ phiếu qua 5 lần nhìn liên tiếp rồi gửi tên bé → ESP32 nhả đúng khẩu phần của bé đó.
+
+**Đăng ký ngay trên web (khuyên dùng):** mục Thú cưng → Thêm/Sửa bé → khung "Camera nhận diện bé":
+- **Đưa bé ra trước camera**: camera trên Pi tự chụp 10 ảnh, mỗi tư thế một ảnh (cắt sát con mèo, không có khung vẽ). Trong lúc chụp máy **không** nhả hạt.
+- **Thêm 5–10 ảnh của bé**: chọn ảnh trong máy, web thu nhỏ còn 640 px rồi gửi lên. Pi tự tìm con mèo trong ảnh.
+Pi hỏi ảnh mới mỗi 20 giây, tính vector đặc trưng rồi báo lại. Ảnh không thấy mèo bị gắn nhãn đỏ "không thấy mèo", nên xoá. Huy hiệu chuyển thành "Camera đã nhận ra bé" khi đủ 5 ảnh đã học. Pi chỉ cần có `models/cat_embedder.onnx` (bước 1 dưới đây), không cần chạy `enroll_cats.py`.
+
+1. **Trên máy tính, làm một lần** (cần Internet để tải trọng số DINOv2 ~85 MB):
+   ```powershell
+   cd firmware\raspberry_pi
+   .\.venv\Scripts\python.exe export_embedder.py        # -> models\cat_embedder.onnx (ViT-S/14, ảnh 224)
+   ```
+   Pi chạy chậm thì xuất `--imgsz 168` (nhanh hơn ~1,8 lần).
+2. **Đăng ký ảnh từng bé**: mỗi bé một thư mục `gallery/<Tên bé>/`, tên thư mục **trùng tên trên web**. Thêm thư mục `gallery/Khac/` chứa ảnh mèo lạ nếu muốn máy không cho mèo hàng xóm ăn.
+   ```powershell
+   .\.venv\Scripts\python.exe enroll_cats.py --src gallery     # không có gallery\ thì dùng dataset\train
+   ```
+   Script tự cắt con mèo bằng YOLOv8, lưu `models\cat_gallery.npz`. Nếu có `dataset\val`, script đo độ chính xác và tự chọn ngưỡng.
+   Có thể chụp thẳng bằng camera trên Pi (cho kết quả tốt nhất vì đúng góc và ánh sáng thật):
+   ```bash
+   sudo systemctl stop aurapet-camera
+   python3 enroll_cats.py --camera --name Mimi --count 40
+   sudo systemctl start aurapet-camera
+   ```
+3. Chép sang Pi bằng `scripts\copy_to_pi.ps1`, rồi khởi động lại dịch vụ camera. Log sẽ hiện `[AI] Re-ID (Feature Embedding dinov2_vits14 ...)`.
+
+| Biến | Mặc định | Ý nghĩa |
+|------|----------|---------|
+| `RECOGNIZER` | `auto` | `auto`: có `cat_embedder.onnx` + `cat_gallery.npz` thì dùng Re-ID, không thì dùng classifier cũ. `reid` / `classifier`: ép một cách |
+| `REID_THRESHOLD` | ngưỡng lưu trong gallery (~0.6) | Điểm cosine tối thiểu để nhận là một bé. Hay nhận nhầm thì tăng, hay báo "Meo" thì giảm |
+| `REID_MARGIN` | `0.03` | Bé đứng đầu phải hơn bé thứ hai ít nhất chừng này |
+| `REID_VOTES` | `5` | Số lần nhìn gần nhất được bỏ phiếu |
+| `REID_UNKNOWN` | `meo` | Mèo không khớp bé nào: `meo` = nhả khẩu phần chung; `khac` = coi là mèo lạ, không nhả |
+
+### Huấn luyện nhận diện từng bé mèo (Classifier cũ, dùng khi chưa có Re-ID)
 1. Chuẩn bị ảnh bằng `prepare_sample_dataset.py` (tự chia train/val, bỏ ảnh hỏng/nhoè), chọn 1 trong 2 cách:
    - **Chạy thử khi chưa có ảnh bé nhà mình** — lấy ảnh mẫu từ bộ [Oxford-IIIT Pet](https://www.robots.ox.ac.uk/~vgg/data/pets/) (CC BY-SA 4.0, tự tải ~792 MB một lần vào `firmware/raspberry_pi/.cache/`). Mỗi "bé" là một giống mèo khác nhau:
      `python firmware/raspberry_pi/prepare_sample_dataset.py oxford --pets "Mimi=Siamese,Tom=Bengal"`

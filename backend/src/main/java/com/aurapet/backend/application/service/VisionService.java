@@ -111,6 +111,13 @@ public class VisionService {
             return;
         }
 
+        // Pi chạy DIRECT_CONTROL=1 đã tự gửi lệnh CAT cho ESP32 (ESP32 tự quyết có nhả không):
+        // backend chỉ ghi nhận bé nào đến, không gửi thêm FEED để khỏi nhả 2 lần
+        // Firmware ESP32 cũ (telemetry không có "cameraActive") không hiểu lệnh CAT -> backend vẫn gửi FEED thay.
+        JsonNode t = feeder.getTelemetry();
+        boolean espHandlesCat = t != null && t.has("cameraActive");
+        if (n.path("direct").asBoolean(false) && espHandlesCat) return;
+
         if (pet.isPresent()) {
             Pet p = pet.get();
             boolean sent = feeder.requestVisionFeed("Camera: " + p.getName(), p.getPortionGram());

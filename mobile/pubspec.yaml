@@ -1,7 +1,7 @@
 name: aurapet_mobile
 description: "AuraPet - ứng dụng điều khiển máy cho ăn mèo thông minh."
 publish_to: 'none'
-version: 2.0.0+2
+version: 2.2.0+3
 
 environment:
   sdk: ^3.13.2

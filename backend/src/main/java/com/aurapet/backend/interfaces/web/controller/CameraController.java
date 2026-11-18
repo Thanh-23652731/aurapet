@@ -2,6 +2,10 @@ package com.aurapet.backend.interfaces.web.controller;
 
 import com.aurapet.backend.application.dto.ApiResponse;
 import com.aurapet.backend.application.service.CameraService;
+import com.aurapet.backend.application.service.DeviceSettingsService;
+import com.aurapet.backend.application.service.ReidService;
+import com.aurapet.backend.domain.model.Pet;
+import com.aurapet.backend.domain.repository.PetRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
@@ -10,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,9 +26,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Camera trực tiếp.
@@ -37,12 +46,19 @@ public class CameraController {
     private static final int MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
     private final CameraService camera;
+    private final PetRepository petRepository;
+    private final DeviceSettingsService settings;
+    private final ReidService reid;
 
     @Value("${aurapet.camera.key:}")
     private String cameraKey;
 
-    public CameraController(CameraService camera) {
+    public CameraController(CameraService camera, PetRepository petRepository, DeviceSettingsService settings,
+                            ReidService reid) {
+        this.reid = reid;
         this.camera = camera;
+        this.petRepository = petRepository;
+        this.settings = settings;
     }
 
     @PostMapping("/frame")
@@ -70,7 +86,100 @@ public class CameraController {
             return error(HttpStatus.BAD_REQUEST, "Dữ liệu không phải ảnh JPEG");
         }
         camera.putFrame(data, "true".equalsIgnoreCase(cat), parseConf(conf));
+        // Đang có phiên "đưa mèo ra trước camera": báo Pi bé nào và còn bao nhiêu ảnh phải chụp
+        HttpHeaders h = new HttpHeaders();
+        ReidService.Capture c = reid.currentCapture();
+        if (c != null) {
+            h.set("X-Enroll-Pet", c.petId().toString());
+            h.set("X-Enroll-Left", String.valueOf(c.left()));
+        }
+        return new ResponseEntity<>(ApiResponse.ok(null, "OK"), h, HttpStatus.OK);
+    }
+
+    // ------------------------------------------------------------------ Re-ID (Pi, X-Camera-Key)
+
+    /** Pi gửi một ảnh đã cắt sẵn con mèo trong phiên chụp. Trả về {"left": số ảnh còn thiếu}. */
+    @PostMapping("/reid-shot")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> reidShot(HttpServletRequest req,
+                                                                     @RequestHeader(value = "X-Camera-Key", required = false) String key,
+                                                                     @RequestHeader(value = "X-Pet-Id", required = false) String petId)
+            throws IOException {
+        ResponseEntity<ApiResponse<Map<String, Object>>> denied = checkKey(key);
+        if (denied != null) return denied;
+        UUID id;
+        try {
+            id = UUID.fromString(String.valueOf(petId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Thiếu X-Pet-Id"));
+        }
+        int left = reid.addCameraShot(id, ReidController.readJpeg(req));
+        return ResponseEntity.ok(ApiResponse.ok(Map.of("left", left), "OK"));
+    }
+
+    /** Danh sách ảnh mẫu của tất cả các bé (Pi so version để biết có ảnh mới). */
+    @GetMapping("/reid-gallery")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> reidGallery(
+            @RequestHeader(value = "X-Camera-Key", required = false) String key) {
+        ResponseEntity<ApiResponse<Map<String, Object>>> denied = checkKey(key);
+        if (denied != null) return denied;
+        return ResponseEntity.ok(ApiResponse.ok(reid.gallery(), "OK"));
+    }
+
+    @GetMapping("/reid-photos/{photoId}")
+    public ResponseEntity<byte[]> reidPhoto(@PathVariable UUID photoId,
+                                            @RequestHeader(value = "X-Camera-Key", required = false) String key) {
+        if (checkKey(key) != null) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(reid.photoForCamera(photoId));
+    }
+
+    /** Pi báo đã học xong: {"ready":true,"model":"...","pets":["Mimi"],"photos":{"<id>":true}}. */
+    @PostMapping("/reid-report")
+    public ResponseEntity<ApiResponse<Void>> reidReport(@RequestBody Map<String, Object> body,
+                                                        @RequestHeader(value = "X-Camera-Key", required = false) String key) {
+        if (checkKey(key) != null) return error(HttpStatus.FORBIDDEN, "Sai CAMERA_KEY");
+        Map<String, Boolean> result = new LinkedHashMap<>();
+        if (body.get("photos") instanceof Map<?, ?> m) {
+            m.forEach((k, v) -> { if (v instanceof Boolean b) result.put(String.valueOf(k), b); });
+        }
+        List<String> names = new ArrayList<>();
+        if (body.get("pets") instanceof List<?> l) l.forEach(x -> names.add(String.valueOf(x)));
+        reid.report(Boolean.TRUE.equals(body.get("ready")), body.get("model") == null ? null : String.valueOf(body.get("model")),
+                names, result);
         return ResponseEntity.ok(ApiResponse.ok(null, "OK"));
+    }
+
+    private <T> ResponseEntity<ApiResponse<T>> checkKey(String key) {
+        if (cameraKey == null || cameraKey.isBlank()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.error("Máy chủ chưa đặt CAMERA_KEY trong .env"));
+        }
+        if (key == null || !MessageDigest.isEqual(key.getBytes(StandardCharsets.UTF_8), cameraKey.getBytes(StandardCharsets.UTF_8))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Sai CAMERA_KEY"));
+        }
+        return null;
+    }
+
+    /**
+     * Raspberry Pi lấy khẩu phần từng bé để tự gửi lệnh cho ESP32 (DIRECT_CONTROL).
+     * {"defaultGram":30, "pets":{"Mimi":25,"Tom":40}} — bé chưa đặt khẩu phần riêng thì không có trong "pets".
+     */
+    @GetMapping("/portions")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> portions(
+            @RequestHeader(value = "X-Camera-Key", required = false) String key) {
+        if (cameraKey == null || cameraKey.isBlank()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(ApiResponse.error("Máy chủ chưa đặt CAMERA_KEY trong .env"));
+        }
+        if (key == null || !MessageDigest.isEqual(key.getBytes(StandardCharsets.UTF_8), cameraKey.getBytes(StandardCharsets.UTF_8))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Sai CAMERA_KEY"));
+        }
+        Map<String, Object> pets = new LinkedHashMap<>();
+        for (Pet p : petRepository.findAll()) {
+            if (p.getName() != null && p.getPortionGram() != null) pets.putIfAbsent(p.getName(), p.getPortionGram());
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("defaultGram", settings.get().getTargetGram());
+        m.put("pets", pets);
+        return ResponseEntity.ok(ApiResponse.ok(m, "OK"));
     }
 
     @GetMapping("/frame")

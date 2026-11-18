@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AuraPet – Chăm sóc mèo</title>
 <meta name="description" content="AuraPet: cho ăn, theo dõi bình nước, khay vệ sinh và sức khoẻ mèo.">
-<meta name="theme-color" content="#F6F2EA">
+<meta name="theme-color" content="#F4EFE6">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -167,6 +167,10 @@
             <button class="btn btn-primary btn-feed" id="feed-btn"><svg class="ico"><use href="#i-bowl"/></svg><span id="feed-btn-text">Cho ăn ngay 30 g</span></button>
             <button class="btn btn-danger btn-feed" id="stop-btn" hidden><svg class="ico"><use href="#i-stop"/></svg>Dừng</button>
           </div>
+          <div class="feed-progress" id="feed-progress" hidden role="progressbar" aria-label="Lượng hạt đã nhả" aria-valuemin="0">
+            <div class="fp-top"><span>Đã nhả</span><b id="fp-text">0 / 30 g</b></div>
+            <span class="fp-bar"><i id="fp-fill"></i></span>
+          </div>
           <p class="dev-note" id="feed-hint"></p>
 
           <footer class="dev-foot">
@@ -207,11 +211,16 @@
             <h2 id="water-title"><svg class="ico"><use href="#i-drop"/></svg>Bình nước</h2>
             <span class="badge off" id="water-state"><i></i><span>–</span></span>
           </header>
-          <dl class="kv">
-            <div><dt>Mực nước</dt><dd><span class="meter" aria-hidden="true"><i id="water-fill"></i></span><b id="water-pct">–</b></dd></div>
-            <div><dt>Bơm</dt><dd>Tuần hoàn liên tục</dd></div>
-            <div><dt>Cập nhật</dt><dd id="water-seen">–</dd></div>
-          </dl>
+          <div class="water-body">
+            <div class="tank" aria-hidden="true"><i id="water-fill"></i></div>
+            <div class="stack">
+              <p class="tank-read"><b id="water-pct">–</b><span>mực nước trong bình</span></p>
+              <dl class="kv">
+                <div><dt>Bơm</dt><dd>Tuần hoàn liên tục</dd></div>
+                <div><dt>Cập nhật</dt><dd id="water-seen">–</dd></div>
+              </dl>
+            </div>
+          </div>
           <p class="dev-note" id="water-note"></p>
         </article>
 
@@ -226,6 +235,10 @@
             <div><dt>Dọn cát gần nhất</dt><dd id="litter-clean">–</dd></div>
             <div><dt>7 ngày qua</dt><dd id="litter-week">–</dd></div>
           </dl>
+          <div class="feed-actions litter-actions">
+            <button class="btn btn-litter btn-feed" id="clean-btn"><svg class="ico"><use href="#i-box"/></svg><span id="clean-btn-text">Dọn cát ngay</span></button>
+            <button class="btn btn-danger btn-feed" id="clean-stop-btn" hidden><svg class="ico"><use href="#i-stop"/></svg>Dừng</button>
+          </div>
           <p class="dev-note" id="litter-note"></p>
         </article>
        </div>
@@ -280,7 +293,10 @@
     <section class="view" id="view-history" hidden aria-label="Lịch sử">
       <div class="panel">
         <div class="panel-head"><h2>Lượng ăn 7 ngày</h2><span class="hint" id="hist-sum"></span></div>
-        <div class="bars bars-tall" id="hist-bars"></div>
+        <div class="chart-wrap" id="hist-chart">
+          <div class="bars bars-tall" id="hist-bars"></div>
+          <p class="chart-empty" id="hist-empty" hidden><b>Chưa có bữa ăn nào trong 7 ngày qua</b>Biểu đồ sẽ hiện khi máy cho ăn ghi nhận bữa đầu tiên.</p>
+        </div>
       </div>
       <div class="panel">
         <div class="panel-head"><h2>Các lần cho ăn</h2></div>
@@ -355,6 +371,27 @@
     </div>
     <label class="field"><span>Khẩu phần khi camera nhận ra bé (g)</span><input name="portionGram" type="number" min="5" max="150" step="1" placeholder="Bỏ trống = dùng khẩu phần chung"></label>
     <label class="field"><span>Link ảnh (tuỳ chọn)</span><input name="imageUrl" type="url" maxlength="1024" placeholder="https://..."></label>
+    <section class="reid" id="reid-box" aria-labelledby="reid-title">
+      <div class="reid-head">
+        <h3 id="reid-title"><svg class="ico"><use href="#i-camera"/></svg>Camera nhận diện bé</h3>
+        <span class="badge" id="reid-badge">Chưa đăng ký</span>
+      </div>
+      <p class="hint" id="reid-hint">Cho camera học mặt bé để nhả đúng khẩu phần của bé. Chọn một trong hai cách, nên có từ 5 ảnh trở lên.</p>
+      <div class="reid-actions">
+        <button type="button" class="btn btn-sm" id="reid-capture"><svg class="ico"><use href="#i-camera"/></svg>Đưa bé ra trước camera</button>
+        <label class="btn btn-sm" id="reid-upload-btn"><svg class="ico"><use href="#i-plus"/></svg>Thêm 5–10 ảnh của bé
+          <input type="file" id="reid-files" accept="image/*" multiple hidden></label>
+      </div>
+      <div class="reid-live" id="reid-live" hidden>
+        <img id="reid-live-img" alt="Hình trực tiếp từ camera trong lúc chụp">
+        <div class="reid-live-bar">
+          <span class="fp-bar"><i id="reid-live-fill"></i></span>
+          <span id="reid-live-text">Đang chờ camera…</span>
+          <button type="button" class="btn btn-sm btn-quiet" id="reid-cancel">Dừng</button>
+        </div>
+      </div>
+      <ul class="reid-grid" id="reid-grid" aria-label="Ảnh mẫu của bé"></ul>
+    </section>
     <datalist id="breeds"><option>Mèo ta</option><option>Anh lông ngắn</option><option>Anh lông dài</option><option>Scottish Fold</option><option>Ba Tư</option><option>Maine Coon</option><option>Xiêm</option><option>Munchkin</option></datalist>
     <p class="form-error" id="pet-error" role="alert"></p>
     <div class="row end">

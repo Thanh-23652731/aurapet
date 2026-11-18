@@ -66,11 +66,11 @@ public class FeederService {
     /** Giá trị "sensor" đã gửi kèm lệnh AUTO lần gần nhất (null = chưa gửi). */
     private Boolean lastSensorFeedSent;
 
-    private volatile LastFeed lastFeed = new LastFeed(null, null, null, null);
+    private volatile LastFeed lastFeed = new LastFeed(null, null, null, null, null);
     private volatile boolean lastFeedLoaded;
 
     /** Lần nhả hạt gần nhất (từ RAM, hoặc từ CSDL sau khi khởi động lại). petId = bé được ghi nhật ký. */
-    public record LastFeed(Instant at, Integer gram, String source, UUID petId) {
+    public record LastFeed(Instant at, Integer gram, String source, UUID petId, Integer targetGram) {
     }
 
     public FeederService(DeviceSettingsService settings,
@@ -120,7 +120,7 @@ public class FeederService {
             lastFeedLoaded = true;
             feedingLogRepository.findFirstByOrderByTimestampDesc().ifPresent(f -> {
                 if (lastFeed.at() == null) {
-                    lastFeed = new LastFeed(f.getTimestamp(), f.getFoodGram(), f.getSource(), f.getPetId());
+                    lastFeed = new LastFeed(f.getTimestamp(), f.getFoodGram(), f.getSource(), f.getPetId(), null);
                 }
             });
         }
@@ -275,7 +275,8 @@ public class FeederService {
         // Ưu tiên bé vừa được camera nhận diện, nếu không thì bé được gán cho máy
         Pet pet = catIdentity.consume().orElseGet(settings::resolveFeederPet);
         Instant now = Instant.now();
-        lastFeed = new LastFeed(now, gram, source, pet != null ? pet.getId() : null);
+        Integer target = n.path("targetGram").asInt(0) > 0 ? n.path("targetGram").asInt() : null;
+        lastFeed = new LastFeed(now, gram, source, pet != null ? pet.getId() : null, target);
         lastFeedLoaded = true;
 
         if (pet == null) {
@@ -298,6 +299,10 @@ public class FeederService {
         if (p.contains("offline")) {
             reportedOffline = true;
             checkOffline();
+        } else if (p.contains("online")) {
+            // ESP32 vừa (kết nối lại / khởi động lại): gửi lại khẩu phần + chế độ tự động trên web xuống máy,
+            // và tạm bỏ qua autoMode trong telemetry để giá trị mặc định lúc khởi động không đè lên cài đặt web
+            pushSettingsToDevice();
         }
     }
 

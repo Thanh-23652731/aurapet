@@ -110,7 +110,11 @@ firmware/raspberry_pi/.cache/
 firmware/raspberry_pi/runs/
 firmware/raspberry_pi/models/*.pt
 firmware/raspberry_pi/models/*.onnx
+firmware/raspberry_pi/models/*.npz
+firmware/raspberry_pi/gallery/
+firmware/raspberry_pi/reid_cache/
 firmware/raspberry_pi/*.onnx
 # Ảnh chụp thử của test_camera.py (có thể chứa hình trong nhà)
 firmware/raspberry_pi/test_snapshot.jpg
 firmware/raspberry_pi/test_detect.jpg
+firmware/raspberry_pi/portions.json

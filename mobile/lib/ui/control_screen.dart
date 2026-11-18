@@ -238,7 +238,11 @@ class _ControlScreenState extends ConsumerState<ControlScreen> {
           const SizedBox(height: 12),
 
           // ---------------- Khay vệ sinh (ESP32 máy dọn cát)
-          _LitterPanel(d: d),
+          _LitterPanel(
+            d: d,
+            onClean: () => _do(dev.cleanLitter, 'Đã gửi lệnh dọn cát'),
+            onStop: () => _do(dev.stopLitter, 'Đã dừng dọn cát'),
+          ),
           const SizedBox(height: 12),
 
           // ---------------- 7 ngày + hoạt động
@@ -512,16 +516,23 @@ class _WaterPanel extends StatelessWidget {
 /// Khay vệ sinh: trạng thái máy dọn cát, lần đi vệ sinh và lần dọn cát gần nhất.
 class _LitterPanel extends StatelessWidget {
   final DeviceState? d;
+  final VoidCallback onClean;
+  final VoidCallback onStop;
 
-  const _LitterPanel({required this.d});
+  const _LitterPanel({required this.d, required this.onClean, required this.onStop});
+
+  static const _litterColor = Color(0xFF6A569A);
 
   static String _dur(int sec) => sec < 60 ? '$sec giây' : '${sec ~/ 60} phút${sec % 60 > 0 ? ' ${sec % 60} giây' : ''}';
 
   @override
   Widget build(BuildContext context) {
     final w = d;
-    final on = w?.waterOnline ?? false;
-    final everSeen = w?.waterLastSeen != null;
+    final on = w?.litterOnline ?? false;
+    final everSeen = w?.litterLastSeen != null;
+    final cleaning = on && w?.litterState == 'cleaning';
+    final catInside = on && w?.litterState == 'cat_inside';
+    final canClean = on && (w?.brokerConnected ?? false) && !cleaning && !catInside;
     final (String label, Color color) = !on
         ? (everSeen ? ('Mất tín hiệu', AppColors.stop) : ('Chưa kết nối', context.muted))
         : switch (w?.litterState) {
@@ -548,13 +559,41 @@ class _LitterPanel extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(child: Fact('Dọn cát gần nhất', w?.lastLitterCleanAt == null ? '–' : ago(w!.lastLitterCleanAt))),
         ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: SizedBox(
+              height: 50,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: _litterColor, foregroundColor: Colors.white),
+                onPressed: canClean ? onClean : null,
+                icon: const Icon(Icons.cleaning_services_outlined),
+                label: Text(cleaning ? 'Đang dọn cát…' : 'Dọn cát ngay', style: const TextStyle(fontSize: 16)),
+              ),
+            ),
+          ),
+          if (cleaning) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 50,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: AppColors.stop, foregroundColor: Colors.white),
+                onPressed: onStop,
+                icon: const Icon(Icons.stop_rounded),
+                label: const Text('Dừng'),
+              ),
+            ),
+          ],
+        ]),
         const SizedBox(height: 6),
         Text(
           !on
               ? (everSeen
                   ? 'Máy dọn cát mất kết nối, lượt đi vệ sinh sẽ được gửi bù khi có mạng lại.'
                   : 'Chưa nhận dữ liệu từ máy dọn cát. Nạp firmware esp32_litter_water.')
-              : 'Máy tự ghi mỗi lượt bé đi vệ sinh và tự cào cát sau khi bé ra 15 giây.',
+              : catInside
+                  ? 'Mèo đang ở trong khay, đợi bé ra rồi mới dọn được.'
+                  : 'Máy tự ghi mỗi lượt bé đi vệ sinh và tự cào cát sau khi bé ra 15 giây.',
           style: TextStyle(color: context.muted, fontSize: 13),
         ),
       ]),

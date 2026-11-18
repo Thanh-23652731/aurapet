@@ -72,6 +72,7 @@ public class DeviceService {
         if (feedPet != null && !own.contains(feedPet)) {
             s.setLastFeedAt(null);
             s.setLastFeedGram(null);
+            s.setLastFeedTargetGram(null);
             s.setLastFeedSource(null);
         }
         UUID visitPet = litter.lastVisit().petId();
@@ -106,6 +107,7 @@ public class DeviceService {
                 .lastSeen(feeder.getLastSeen())
                 .lastFeedAt(lastFeed.at())
                 .lastFeedGram(lastFeed.gram())
+                .lastFeedTargetGram(lastFeed.targetGram())
                 .lastFeedSource(lastFeed.source())
                 .settings(settings.toDto());
 
@@ -115,6 +117,10 @@ public class DeviceService {
                     .lowFood(t.path("lowFood").asBoolean(false))
                     .catPresent(online && t.path("petPresent").asBoolean(false))
                     .feeding(online && t.path("isFeeding").asBoolean(false))
+                    .feedGoalGram(online && t.path("isFeeding").asBoolean(false) && t.has("feedGoal")
+                            ? t.path("feedGoal").asInt() : null)
+                    .feedAddedGram(online && t.path("isFeeding").asBoolean(false) && t.has("feedAdded")
+                            ? Math.round(t.path("feedAdded").asDouble() * 10.0) / 10.0 : null)
                     .feedCountSinceBoot(t.path("feedCount").asInt(0))
                     .ip(textOrNull(t, "ip"))
                     .wifiRssi(t.has("rssi") ? t.path("rssi").asInt() : null)
@@ -130,6 +136,9 @@ public class DeviceService {
                 .waterPercent(w.percent())
                 .waterCm(w.cm())
                 .lowWater(w.low())
+                .waterSource(w.source())
+                .litterOnline(w.litterOnline())
+                .litterLastSeen(w.litterLastSeen())
                 .litterState(w.litterState());
 
         LitterService.LastVisit visit = litter.lastVisit();
@@ -163,6 +172,16 @@ public class DeviceService {
         return getState(actor);
     }
 
+    public DeviceStateDto cleanLitter(Actor actor) {
+        litter.clean();
+        return getState(actor);
+    }
+
+    public DeviceStateDto stopLitter(Actor actor) {
+        litter.stopClean();
+        return getState(actor);
+    }
+
     public DeviceStateDto updateSettings(UpdateDeviceSettingsRequest request, Actor actor) {
         feeder.updateSettings(request, actor);
         return getState(actor);
@@ -181,7 +200,10 @@ public class DeviceService {
     public void onDeviceMessage(DeviceMessageEvent event) {
         try {
             switch (event.channel()) {
-                case "telemetry" -> feeder.handleTelemetry(event.payload());
+                case "telemetry" -> {
+                    feeder.handleTelemetry(event.payload());
+                    water.handleFeederTelemetry(feeder.getTelemetry()); // máy cho ăn có lắp cảm biến nước
+                }
                 case "log" -> feeder.handleFeedingLog(event.payload());
                 case "status" -> feeder.handleStatus(event.payload());
                 case "vision" -> vision.handleVision(event.payload());

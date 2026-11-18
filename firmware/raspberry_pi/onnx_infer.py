@@ -29,7 +29,14 @@ def _session(path, threads):
     so = ort.SessionOptions()
     so.intra_op_num_threads = max(1, int(threads))
     so.inter_op_num_threads = 1
-    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    # BASIC: mức ALL/EXTENDED gộp SiLU của YOLOv8 thành nút QuickGelu, bản onnxruntime trên Pi (ARM)
+    # chạy nút này bị lỗi "GetElementType is not implemented" rồi Aborted. Đặt ORT_OPT=all để thử lại mức cao.
+    level = os.getenv("ORT_OPT", "basic").strip().lower()
+    so.graph_optimization_level = {
+        "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+        "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+        "none": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+    }.get(level, ort.GraphOptimizationLevel.ORT_ENABLE_BASIC)
     return ort.InferenceSession(str(path), sess_options=so, providers=["CPUExecutionProvider"])
 
 
@@ -147,6 +154,105 @@ class OnnxCatDetector:
             name, nconf = self.classify(crop_with_margin(frame, x1, y1, x2, y2, self.crop_margin))
             cats.append((x1, y1, x2, y2, c, name, nconf))
         return cats
+
+
+# ====================================================================== Re-ID bằng Feature Embedding
+class OnnxCatEmbedder:
+    """
+    Trích đặc trưng (DINOv2 ONNX, xuất bằng export_embedder.py): ảnh mèo -> vector đã chuẩn hoá L2.
+    Hai ảnh cùng một bé cho vector gần nhau (cosine cao), khác bé thì xa nhau -> không cần train lại
+    mô hình khi thêm bé mới, chỉ cần đăng ký vài chục ảnh (enroll_cats.py).
+    """
+
+    def __init__(self, path, threads=None):
+        threads = threads or max(1, (os.cpu_count() or 2) // 2)
+        self.sess = _session(path, threads)
+        self.inp = self.sess.get_inputs()[0].name
+        self.h, self.w = _input_size(self.sess, 224)
+        self.meta = _meta(self.sess)
+
+    def _blob(self, crop, flip=False):
+        # Đệm thành hình vuông (không cắt mất tai/đuôi như cắt giữa) rồi thu về kích thước mô hình
+        h, w = crop.shape[:2]
+        s = max(h, w)
+        top, left = (s - h) // 2, (s - w) // 2
+        img = cv2.copyMakeBorder(crop, top, s - h - top, left, s - w - left, cv2.BORDER_CONSTANT, value=(124, 116, 104))
+        img = cv2.resize(img, (self.w, self.h), interpolation=cv2.INTER_AREA if s > self.w else cv2.INTER_LINEAR)
+        if flip:
+            img = img[:, ::-1]
+        return np.ascontiguousarray(img[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0)
+
+    def embed(self, crop, flip_tta=False):
+        """Vector đặc trưng (1 chiều, chuẩn hoá L2). flip_tta=True: trung bình thêm ảnh lật ngang (chậm gấp đôi)."""
+        if crop is None or crop.size == 0:
+            return None
+        v = self.sess.run(None, {self.inp: self._blob(crop)})[0][0].astype(np.float32)
+        if flip_tta:
+            v = v + self.sess.run(None, {self.inp: self._blob(crop, flip=True)})[0][0].astype(np.float32)
+        n = float(np.linalg.norm(v))
+        return v / n if n > 0 else v
+
+
+UNKNOWN_PREFIXES = ("khac", "_", "unknown", "other")
+
+
+def is_negative_name(name):
+    """Thư mục 'Khac' / '_...' trong gallery = mèo lạ dùng làm mẫu đối chứng, không phải một bé được cho ăn."""
+    return str(name).strip().lower().startswith(UNKNOWN_PREFIXES)
+
+
+class CatGallery:
+    """
+    Kho đặc trưng các bé đã đăng ký (models/cat_gallery.npz: names[i] ứng với embeddings[i]).
+    So khớp: với mỗi bé lấy trung bình top-k cosine giữa ảnh mới và các ảnh đã đăng ký của bé đó.
+    Nhận là bé A khi điểm A >= threshold VÀ hơn bé đứng thứ hai ít nhất `margin`; ngược lại là mèo lạ.
+    """
+
+    def __init__(self, names, embeddings, threshold=0.6, margin=0.03, topk=3):
+        self.names = [str(n) for n in names]
+        e = np.asarray(embeddings, dtype=np.float32)
+        if e.ndim != 2 or len(self.names) != len(e):
+            raise ValueError("gallery lỗi: số tên và số vector không khớp")
+        self.emb = e / np.maximum(np.linalg.norm(e, axis=1, keepdims=True), 1e-12)
+        self.threshold, self.margin, self.topk = float(threshold), float(margin), int(topk)
+        self.labels = sorted(set(self.names))
+        self._idx = {n: np.array([i for i, m in enumerate(self.names) if m == n]) for n in self.labels}
+
+    @classmethod
+    def load(cls, path, **kw):
+        d = np.load(str(path), allow_pickle=False)
+        g = cls(d["names"].tolist(), d["embeddings"], **kw)
+        if "threshold" in d.files and "threshold" not in kw:
+            g.threshold = float(d["threshold"])
+        return g
+
+    def save(self, path, threshold=None):
+        np.savez_compressed(str(path), names=np.array(self.names), embeddings=self.emb,
+                            threshold=np.float32(self.threshold if threshold is None else threshold))
+
+    @property
+    def pets(self):
+        return [n for n in self.labels if not is_negative_name(n)]
+
+    def scores(self, v):
+        """{tên: điểm} (trung bình top-k cosine) cho từng tên trong gallery."""
+        sims = self.emb @ np.asarray(v, dtype=np.float32)
+        out = {}
+        for n, idx in self._idx.items():
+            s = np.sort(sims[idx])[::-1][:self.topk]
+            out[n] = float(s.mean())
+        return out
+
+    def match(self, v):
+        """(tên bé, điểm) hoặc ("", điểm cao nhất) nếu là mèo lạ / không chắc."""
+        if v is None or not self.labels:
+            return "", 0.0
+        sc = sorted(self.scores(v).items(), key=lambda kv: kv[1], reverse=True)
+        name, best = sc[0]
+        second = sc[1][1] if len(sc) > 1 else -1.0
+        if is_negative_name(name) or best < self.threshold or best - second < self.margin:
+            return "", best
+        return name, best
 
 
 def crop_with_margin(frame, x1, y1, x2, y2, margin):

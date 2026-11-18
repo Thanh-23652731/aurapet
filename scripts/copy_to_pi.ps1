@@ -4,19 +4,20 @@
 # Chỉ chép những file Pi cần (~20 MB: code + mô hình .onnx), KHÔNG chép .venv / .cache / dataset.
 # Pi chạy mô hình bằng ONNX Runtime nên không cần file .pt hay PyTorch.
 # Cách dùng (PowerShell, tại thư mục dự án):
-#   powershell -ExecutionPolicy Bypass -File scripts\copy_to_pi.ps1 -PiHost 192.168.99.50 -User pi
+#   powershell -ExecutionPolicy Bypass -File scripts\copy_to_pi.ps1
+#   (mặc định nhom4@192.168.99.160; Pi đổi IP thì thêm -PiHost <IP mới>, xem IP trên Pi: hostname -I)
 # Lần đầu SSH sẽ hỏi "Are you sure you want to continue connecting" -> gõ yes, rồi nhập mật khẩu Pi.
 # =============================================================================
 param(
-    [string]$PiHost = "raspberrypi.local",  # IP hoặc tên máy của Pi
-    [string]$User = "pi",                   # tài khoản đăng nhập Pi
+    [string]$PiHost = "192.168.99.160",     # IP của Pi nhom4 (Windows không tìm ra tên nhom4.local)
+    [string]$User = "nhom4",                # tài khoản đăng nhập Pi
     [string]$RemoteDir = "aurapet"          # thư mục trên Pi (trong ~)
 )
 $ErrorActionPreference = 'Stop'
 $src = Join-Path (Split-Path -Parent $PSScriptRoot) 'firmware\raspberry_pi'
 
 $files = @(
-    'cat_detection_gateway.py', 'onnx_infer.py', 'test_camera.py', 'requirements-pi.txt',
+    'cat_detection_gateway.py', 'onnx_infer.py', 'reid_sync.py', 'enroll_cats.py', 'test_camera.py', 'requirements-pi.txt',
     'setup_pi.sh', 'run_camera.sh', 'aurapet-camera.env', 'yolov8n.onnx'
 )
 $missing = $files | Where-Object { -not (Test-Path (Join-Path $src $_)) }
@@ -34,15 +35,21 @@ $model = Join-Path $src 'models\cat_classifier.onnx'
 $target = "$User@$PiHost"
 Write-Host "[1/3] Tạo thư mục ~/$RemoteDir/models trên $target ..."
 ssh $target "mkdir -p ~/$RemoteDir/models"
-if ($LASTEXITCODE -ne 0) { Write-Host "[X] Không SSH được vào $target. Kiểm tra IP, tài khoản, và đã bật SSH trên Pi (sudo raspi-config -> Interface -> SSH)." -ForegroundColor Red; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "[X] Không SSH được vào $target. Nếu máy tính không tìm ra tên 'nhom4.local', chạy lại với IP của Pi: -PiHost <IP> (xem IP trên Pi: hostname -I). Kiểm tra cũng đã bật SSH trên Pi (sudo raspi-config -> Interface -> SSH)." -ForegroundColor Red; exit 1 }
 
 Write-Host "[2/3] Chép $($files.Count) file ..."
 scp ($files | ForEach-Object { Join-Path $src $_ }) "${target}:~/$RemoteDir/"
 if ($LASTEXITCODE -ne 0) { exit 1 }
+$reid = @('models\cat_embedder.onnx', 'models\cat_gallery.npz') | ForEach-Object { Join-Path $src $_ } | Where-Object { Test-Path $_ }
+if ($reid.Count -eq 2) {
+    Write-Host "    Re-ID (Feature Embedding DINOv2): chép cat_embedder.onnx + cat_gallery.npz"
+    scp $reid "${target}:~/$RemoteDir/models/"
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+}
 if (Test-Path $model) {
     scp $model "${target}:~/$RemoteDir/models/"
-} else {
-    Write-Host "    (Chưa có models\cat_classifier.onnx: camera chỉ biết 'có mèo'. Train rồi chạy export_onnx.py)"
+} elseif ($reid.Count -ne 2) {
+    Write-Host "    (Chưa có mô hình nhận ra từng bé: camera chỉ biết 'có mèo'. Chạy export_embedder.py + enroll_cats.py)"
 }
 
 Write-Host "[3/3] Cho phép chạy các script .sh ..."

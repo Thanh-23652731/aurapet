@@ -28,7 +28,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   PREFIX/vision     Raspberry Pi -> server (phát hiện mèo bằng camera)
  *   PREFIX/water      ESP32 máy dọn cát -> server (mực nước bình bơm + trạng thái khay, 5 giây/lần)
  *   PREFIX/litter     ESP32 máy dọn cát -> server (mèo đi vệ sinh, dọn cát xong)
- *   PREFIX/command    server -> ESP32
+ *   PREFIX/command    server -> ESP32 máy cho ăn
+ *   PREFIX/litter/command  server -> ESP32 máy dọn cát (CLEAN / STOP)
  *
  * Trình duyệt và app KHÔNG kết nối broker trực tiếp nữa, nên mật khẩu broker không bị lộ.
  */
@@ -171,14 +172,14 @@ public class MqttGateway implements DeviceCommandPublisher, MqttCallbackExtended
     }
 
     @Override
-    public boolean publishCommand(Map<String, Object> command) {
+    public boolean publish(String channel, Map<String, Object> command) {
         if (!isConnected()) return false;
         try {
             MqttMessage msg = new MqttMessage(mapper.writeValueAsBytes(command));
             msg.setQos(1);
             msg.setRetained(false);
-            client.publish(prefix + "/command", msg);
-            log.info("[MQTT] -> command {}", command);
+            client.publish(prefix + "/" + channel, msg);
+            log.info("[MQTT] -> {} {}", channel, command);
             return true;
         } catch (Exception e) {
             log.warn("[MQTT] Gửi lệnh lỗi: {}", e.getMessage());

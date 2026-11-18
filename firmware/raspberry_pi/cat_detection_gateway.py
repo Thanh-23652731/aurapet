@@ -34,6 +34,16 @@ Cấu hình bằng biến môi trường:
     Tầm nhìn xa phụ thuộc kích thước ảnh của yolov8n.onnx (xuất bằng export_onnx.py --imgsz,
     mặc định 640; 416 nhẹ hơn ~2 lần nếu Pi chạy chậm)
     CAT_STABLE_FRAMES  số lần nhận diện liên tiếp để đổi trạng thái, mặc định 3
+
+  Nhận ra từng bé - Re-ID bằng Feature Embedding (DINOv2), ưu tiên hơn classifier cũ:
+    Có models/cat_embedder.onnx (export_embedder.py) + models/cat_gallery.npz (enroll_cats.py) là tự bật.
+    Thêm bé mới chỉ cần đăng ký ảnh (enroll_cats.py --camera --name Bin), không phải train lại.
+    RECOGNIZER         auto (mặc định) | reid | classifier
+    REID_THRESHOLD     điểm cosine tối thiểu để nhận là một bé, mặc định lấy ngưỡng lưu trong gallery
+    REID_MARGIN        bé đứng đầu phải hơn bé thứ hai ít nhất chừng này, mặc định 0.03
+    REID_VOTES         số lần nhìn gần nhất dùng để bỏ phiếu tên bé, mặc định 5
+    REID_MARGIN_CROP   cắt quanh khung mèo cho Re-ID, mặc định 0.1
+    REID_UNKNOWN       mèo không khớp bé nào: meo (mặc định, nhả khẩu phần chung) | khac (coi là mèo lạ, không nhả)
     CAT_ROI            vùng quan sát "x1,y1,x2,y2" theo pixel của khung CAMERA_WIDTH x CAMERA_HEIGHT
                        (bỏ trống = cả khung hình). Tâm con mèo phải nằm trong vùng này.
     CAT_NEAR_AREA      mèo phải chiếm ít nhất tỉ lệ này của khung hình mới tính là "đến gần",
@@ -43,6 +53,13 @@ Cấu hình bằng biến môi trường:
     HEARTBEAT_INTERVAL khi không có mèo, vẫn báo "camera đang chạy" mỗi N giây, mặc định 15
                        (backend dựa vào đây để ESP32 không tự nhả theo cảm biến mà chờ camera
                        nhận ra bé rồi nhả đúng khẩu phần của bé đó)
+    DIRECT_CONTROL     1 (mặc định) = Pi gửi lệnh THẲNG cho ESP32 qua topic <TOPIC_PREFIX>/command:
+                       {"action":"CAT","present":true,"pet":"Mimi","gram":25}. ESP32 tự quyết nhả
+                       (bật Tự động, khay < 10 g, cách lần trước >= 60 s) nên vẫn chạy khi backend tắt.
+                       0 = như cũ, backend nhận sự kiện vision rồi mới gửi FEED cho ESP32.
+    PET_PORTIONS       khẩu phần từng bé khi không lấy được từ backend, vd. "Mimi:25,Tom:40".
+                       Có AURAPET_SERVER + CAMERA_KEY thì Pi tự lấy khẩu phần đã đặt trên web mỗi 60 giây
+                       (lưu lại vào portions.json để dùng khi mất mạng).
     AI_ENABLED=0       chỉ phát hình trực tiếp, không nhận diện mèo (khi YOLO/PyTorch lỗi trên máy này)
     SHOW_PREVIEW=1     mở cửa sổ xem trước trên máy (cần opencv-python, không phải bản headless).
                        Nhấn q để thoát.
@@ -55,6 +72,7 @@ Ví dụ (laptop Windows, PowerShell):
     python firmware\\raspberry_pi\\cat_detection_gateway.py
 """
 
+import collections
 import json
 import os
 import queue
@@ -138,6 +156,15 @@ INFERENCE = os.getenv("INFERENCE", "auto").strip().lower()
 ONNX_DETECTOR = os.getenv("ONNX_DETECTOR", "").strip() or str(Path(__file__).resolve().parent / "yolov8n.onnx")
 ONNX_CLASSIFIER = os.getenv("ONNX_CLASSIFIER", "").strip() or str(_DEFAULT_CLASSIFIER_ONNX)
 DEMO_PET_NAME = os.getenv("DEMO_PET_NAME", "").strip()
+# Re-ID bằng Feature Embedding (DINOv2 ONNX + kho ảnh đã đăng ký)
+RECOGNIZER = os.getenv("RECOGNIZER", "auto").strip().lower()
+ONNX_EMBEDDER = os.getenv("ONNX_EMBEDDER", "").strip() or str(_DEFAULT_CLASSIFIER_DIR / "cat_embedder.onnx")
+CAT_GALLERY = os.getenv("CAT_GALLERY", "").strip() or str(_DEFAULT_CLASSIFIER_DIR / "cat_gallery.npz")
+REID_THRESHOLD = os.getenv("REID_THRESHOLD", "").strip()
+REID_MARGIN = _env_float("REID_MARGIN", 0.03)
+REID_VOTES = max(1, int(os.getenv("REID_VOTES", "5")))
+REID_MARGIN_CROP = max(0.0, _env_float("REID_MARGIN_CROP", 0.1))
+REID_UNKNOWN = "Khac" if os.getenv("REID_UNKNOWN", "meo").strip().lower() in ("khac", "khác", "stranger") else "Meo"
 
 SCAN_INTERVAL = max(0.1, _env_float("SCAN_INTERVAL", 0.5))
 REPORT_INTERVAL = _env_float("REPORT_INTERVAL", 10)
@@ -152,7 +179,84 @@ if not TOPIC_PREFIX:
     sys.exit("Thiếu MQTT_TOPIC_PREFIX. Đặt cùng giá trị với file .env của backend.")
 
 VISION_TOPIC = TOPIC_PREFIX + "/vision"
+COMMAND_TOPIC = TOPIC_PREFIX + "/command"
 STREAM_ON = bool(AURAPET_SERVER and CAMERA_KEY)
+DIRECT_CONTROL = os.getenv("DIRECT_CONTROL", "1") not in ("0", "false", "False")
+PORTIONS_FILE = Path(__file__).resolve().parent / "portions.json"
+# Tên lớp "mèo lạ" của mô hình (giống backend VisionService) -> báo ESP32 không nhả
+STRANGER_NAMES = {"khac", "khác", "stranger", "other"}
+GENERIC_NAMES = {"", "meo", "mèo", "unknown", "cat"}
+
+
+# ------------------------ KHẨU PHẦN TỪNG BÉ ------------------------
+def _parse_portions(text):
+    out = {}
+    for part in text.split(","):
+        if ":" in part:
+            name, gram = part.rsplit(":", 1)
+            try:
+                out[name.strip().lower()] = int(float(gram))
+            except ValueError:
+                print(f"[Khẩu phần] Bỏ qua '{part}' trong PET_PORTIONS (cần dạng Ten:gram)")
+    return out
+
+
+class Portions(threading.Thread):
+    """Khẩu phần từng bé: lấy từ backend (đặt trên web) mỗi 60 s, lưu portions.json để dùng khi mất mạng."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.lock = threading.Lock()
+        self.pets = {}
+        try:
+            self.pets = {k.lower(): int(v) for k, v in json.loads(PORTIONS_FILE.read_text("utf-8")).items()}
+        except Exception:
+            pass
+        self.pets.update(_parse_portions(os.getenv("PET_PORTIONS", "")))
+        self.ok = None
+
+    def gram_for(self, pet_name):
+        """Khẩu phần riêng của bé, None = dùng khẩu phần chung đang đặt trên ESP32."""
+        with self.lock:
+            return self.pets.get(pet_name.strip().lower())
+
+    def _fetch(self):
+        u = urlsplit(AURAPET_SERVER + "/api/v1/camera/portions")
+        cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+        conn = cls(u.hostname, u.port, timeout=5)
+        try:
+            conn.request("GET", u.path, headers={"X-Camera-Key": CAMERA_KEY})
+            res = conn.getresponse()
+            body = res.read()
+        finally:
+            conn.close()
+        if res.status != 200:
+            raise RuntimeError(f"HTTP {res.status}")
+        data = json.loads(body.decode("utf-8"))
+        data = data.get("data", data)
+        return {str(k).lower(): int(v) for k, v in (data.get("pets") or {}).items()}
+
+    def run(self):
+        while True:
+            try:
+                pets = self._fetch()
+                pets.update(_parse_portions(os.getenv("PET_PORTIONS", "")))  # PET_PORTIONS ưu tiên hơn
+                with self.lock:
+                    changed = pets != self.pets
+                    self.pets = pets
+                if changed or self.ok is not True:
+                    print(f"[Khẩu phần] Từ web: {pets or 'chưa bé nào đặt khẩu phần riêng (dùng khẩu phần chung)'}")
+                    PORTIONS_FILE.write_text(json.dumps(pets, ensure_ascii=False), "utf-8")
+                self.ok = True
+            except Exception as e:
+                if self.ok is not False:
+                    print(f"[Khẩu phần] Không lấy được từ backend ({e}), dùng bản đã lưu: {self.pets or 'trống'}")
+                self.ok = False
+            time.sleep(60)
+
+
+PORTIONS = Portions()
+ENROLLER = None  # reid_sync.Enroller khi có AURAPET_SERVER + CAMERA_KEY (đăng ký bé từ web)
 
 
 # --------------------------- NHẬN DIỆN ----------------------------
@@ -169,6 +273,12 @@ class CatDetector:
         self.onnx = None
         self.model = None
         self.classifier = None
+        self.reid = None  # (OnnxCatEmbedder, CatGallery) khi đã có ít nhất một bé đăng ký
+        self.embedder = None
+        self.local_gallery = None  # models/cat_gallery.npz (enroll_cats.py), gộp với ảnh đăng ký trên web
+        self.infer_lock = threading.Lock()
+        self.votes = collections.deque(maxlen=REID_VOTES)
+        self.last_seen = 0.0
         mode = INFERENCE
         if mode == "auto":
             import onnx_infer
@@ -177,7 +287,9 @@ class CatDetector:
             self._init_onnx()
         else:
             self._init_torch()
-        if self.classifier is None and (self.onnx is None or self.onnx.cls is None) and DEMO_PET_NAME:
+        if RECOGNIZER in ("auto", "reid"):
+            self._init_reid()
+        if self.classifier is None and self.reid is None and (self.onnx is None or self.onnx.cls is None) and DEMO_PET_NAME:
             print(f"[AI] Đang chạy chế độ mô phỏng nhận diện bé: '{DEMO_PET_NAME}'")
 
     def _init_onnx(self):
@@ -193,6 +305,78 @@ class CatDetector:
         print(f"[AI] Ảnh vào detector {self.onnx.det_w}x{self.onnx.det_h}")
         if self.onnx.cls is not None:
             print(f"[AI] Đã kích hoạt nhận diện riêng từng bé: {self.onnx.names}")
+
+    def _init_reid(self):
+        """Nạp mô hình đặc trưng. Kho ảnh mẫu: file cat_gallery.npz (enroll_cats.py) và/hoặc ảnh đăng ký trên web."""
+        if not Path(ONNX_EMBEDDER).exists():
+            if RECOGNIZER == "reid":
+                sys.exit(f"RECOGNIZER=reid nhưng thiếu {ONNX_EMBEDDER} (export_embedder.py trên máy tính rồi chép sang Pi)")
+            return
+        import onnx_infer
+        if not onnx_infer.available():
+            print("[AI] Re-ID cần onnxruntime: pip install onnxruntime -> dùng classifier cũ")
+            return
+        self.embedder = onnx_infer.OnnxCatEmbedder(ONNX_EMBEDDER, threads=TORCH_THREADS)
+        if Path(CAT_GALLERY).exists():
+            self.local_gallery = onnx_infer.CatGallery.load(CAT_GALLERY, **self.gallery_kw())
+        self.set_gallery(self.local_gallery)
+        if self.reid is None:
+            print(f"[AI] Re-ID sẵn sàng ({self.embedder.meta.get('model', 'DINOv2')}) nhưng chưa bé nào được đăng ký: "
+                  "thêm ảnh hoặc chụp bé trong mục Thú cưng trên web")
+
+    @staticmethod
+    def gallery_kw():
+        kw = {"margin": REID_MARGIN}
+        if REID_THRESHOLD:
+            kw["threshold"] = float(REID_THRESHOLD)
+        return kw
+
+    def set_gallery(self, gallery):
+        """Đổi kho ảnh mẫu khi đang chạy (đồng bộ ảnh đăng ký từ web)."""
+        if self.embedder is None:
+            return
+        self.reid = (self.embedder, gallery) if gallery is not None and gallery.labels else None
+        self.votes.clear()
+        if self.reid is not None:
+            print(f"[AI] Re-ID (Feature Embedding {self.embedder.meta.get('model', 'DINOv2')}, ảnh {self.embedder.w}px): "
+                  f"các bé {gallery.pets} | {len(gallery.names)} ảnh mẫu | ngưỡng {gallery.threshold:.2f}"
+                  f" | bỏ phiếu {REID_VOTES} lần | không khớp -> {REID_UNKNOWN}")
+
+    def cats_in(self, img):
+        """[(x1, y1, x2, y2, độ tin cậy)] dùng cho ảnh đăng ký (khoá chung với luồng nhận diện)."""
+        with self.infer_lock:
+            return self._raw_cats(img)
+
+    def identify(self, frame, x1, y1, x2, y2, use_votes=True):
+        """Re-ID: (tên bé, điểm) cho con mèo trong khung, bỏ phiếu qua REID_VOTES lần nhìn gần nhất."""
+        import onnx_infer
+        r = self.reid
+        if r is None:
+            return REID_UNKNOWN, 0.0
+        emb, gallery = r
+        crop = onnx_infer.crop_with_margin(frame, x1, y1, x2, y2, REID_MARGIN_CROP)
+        if crop.size == 0 or min(crop.shape[:2]) < 32:
+            return REID_UNKNOWN, 0.0
+        sc = gallery.scores(emb.embed(crop))
+        if use_votes:
+            now = time.time()
+            if now - self.last_seen > 3.0:
+                self.votes.clear()  # mèo đi khỏi rồi quay lại (có thể là bé khác) -> bỏ phiếu lại từ đầu
+            self.last_seen = now
+            self.votes.append(sc)
+            # Trung bình điểm các lần nhìn rồi mới so: một khung mờ/nghiêng không làm đổi tên bé
+            avg = {n: sum(v[n] for v in self.votes) / len(self.votes) for n in sc}
+        else:
+            self.votes.clear()
+            avg = sc
+        top = sorted(avg.items(), key=lambda kv: kv[1], reverse=True)
+        name, best = top[0]
+        second = top[1][1] if len(top) > 1 else -1.0
+        if onnx_infer.is_negative_name(name):
+            return "Khac", best
+        if best < gallery.threshold or best - second < gallery.margin:
+            return REID_UNKNOWN, best
+        return name, best
 
     def _init_torch(self):
         try:
@@ -248,17 +432,26 @@ class CatDetector:
         return out
 
     def detect(self, frame):
+        with self.infer_lock:
+            return self._detect(frame)
+
+    def _detect(self, frame):
         """Trả về (có_mèo, độ_tin_cậy_cao_nhất, danh_sách_khung, tên_bé_nổi_bật)."""
         h, w = frame.shape[:2]
         boxes = []
-        for x1, y1, x2, y2, conf in self._raw_cats(frame):
-            if conf < CAT_CONFIDENCE:
+        cands = [c for c in self._raw_cats(frame)
+                 if c[4] >= CAT_CONFIDENCE and _in_roi((c[0] + c[2]) / 2.0, (c[1] + c[3]) / 2.0)
+                 and (c[2] - c[0]) * (c[3] - c[1]) >= CAT_NEAR_AREA * w * h]  # bỏ mèo ngoài ROI / còn ở xa
+        for x1, y1, x2, y2, conf in cands:
+            if self.reid is not None:
+                try:
+                    # Nhiều mèo cùng lúc thì không bỏ phiếu chung (sẽ lẫn điểm của các bé với nhau)
+                    cat_name, cat_conf = self.identify(frame, x1, y1, x2, y2, use_votes=len(cands) == 1)
+                except Exception as e:
+                    print(f"[AI] Lỗi Re-ID: {e}")
+                    cat_name, cat_conf = REID_UNKNOWN, 0.0
+                boxes.append((int(x1), int(y1), int(x2 - x1), int(y2 - y1), conf, cat_name, cat_conf))
                 continue
-            if not _in_roi((x1 + x2) / 2.0, (y1 + y2) / 2.0):
-                continue
-            if (x2 - x1) * (y2 - y1) < CAT_NEAR_AREA * w * h:
-                continue  # mèo còn ở xa
-
             # Cắt vùng ảnh con mèo (nới rộng thêm CROP_MARGIN mỗi phía) để nhận diện danh tính cụ thể
             mx, my = (x2 - x1) * CROP_MARGIN, (y2 - y1) * CROP_MARGIN
             crop = frame[max(0, int(y1 - my)):min(h, int(y2 + my)), max(0, int(x1 - mx)):min(w, int(x2 + mx))]
@@ -311,6 +504,19 @@ class DetectionWorker(threading.Thread):
                 print(f"[AI] Lỗi nhận diện: {e}")
                 continue
             now = time.time()
+            if ENROLLER is not None and ENROLLER.active():
+                # Đang chụp ảnh đăng ký: chỉ chụp, KHÔNG báo "có mèo" (không để máy nhả hạt khi chủ đang bế bé)
+                if found:
+                    ENROLLER.offer(frame, boxes)
+                with self.lock:
+                    self.found, self.conf, self.boxes = found, conf, boxes
+                    self.pet_name = ""
+                    beat = now - self.last_report > HEARTBEAT_INTERVAL
+                    if beat:
+                        self.last_report = now
+                if beat:  # vẫn báo "camera đang chạy" để ESP32 không tự nhả theo cảm biến
+                    publish(self.client, False, 0.0, "", quiet=True)
+                continue
             with self.lock:
                 self.found, self.conf, self.boxes = found, conf, boxes
                 self.pet_name = pet_name if found else ""
@@ -350,13 +556,40 @@ def publish(client, cat_present, confidence, pet_name="", quiet=False):
         "petName": pet_name if cat_present else "",
         "confidence": round(confidence, 2),
         "source": "pi-camera-yolov8",
+        "direct": DIRECT_CONTROL,  # backend biết Pi đã tự gửi lệnh, không gửi FEED nữa
         "ts": int(time.time())
     })
     client.publish(VISION_TOPIC, payload, qos=0)
+    note = ""
+    if DIRECT_CONTROL:
+        note = send_cat_command(client, cat_present, pet_name)
     if quiet:
         return  # heartbeat lúc không có mèo: không in log
     who = f" [{pet_name}]" if pet_name and pet_name != "Meo" else ""
-    print(("[Camera] MÈO ĐẾN GẦN" if cat_present else "[Camera] Mèo đã rời đi") + who, f"(độ tin cậy {confidence:.2f})")
+    print(("[Camera] MÈO ĐẾN GẦN" if cat_present else "[Camera] Mèo đã rời đi") + who,
+          f"(độ tin cậy {confidence:.2f})" + note)
+
+
+def send_cat_command(client, cat_present, pet_name):
+    """Gửi thẳng cho ESP32. ESP32 tự xét Tự động / khay < 10 g / cooldown rồi mới chạy motor."""
+    cmd = {"action": "CAT", "present": bool(cat_present)}
+    note = ""
+    if cat_present:
+        key = (pet_name or "").strip().lower()
+        if key in STRANGER_NAMES:
+            cmd.update(pet=pet_name, stranger=True)
+            note = " -> ESP32: mèo lạ, không nhả"
+        elif key in GENERIC_NAMES:
+            note = " -> ESP32: khẩu phần chung"
+        else:
+            cmd["pet"] = pet_name
+            gram = PORTIONS.gram_for(pet_name)
+            if gram:
+                cmd["gram"] = gram
+            note = f" -> ESP32: {pet_name} {str(gram) + 'g' if gram else 'khẩu phần chung'}"
+    # QoS 1: lệnh cho ăn không được rơi mất
+    client.publish(COMMAND_TOPIC, json.dumps(cmd, ensure_ascii=False), qos=1)
+    return note
 
 
 # ------------------------- HÌNH TRỰC TIẾP -------------------------
@@ -403,6 +636,8 @@ class FrameUploader(threading.Thread):
                 raise
             if res.will_close:
                 self._close()
+            if ENROLLER is not None and 200 <= res.status < 300:
+                ENROLLER.update_from_headers(res.getheader("X-Enroll-Pet"), res.getheader("X-Enroll-Left"))
             return res.status
 
     def run(self):
@@ -490,6 +725,22 @@ def open_camera():
 
 
 # ------------------------------------------------------------------
+def start_reid_sync(detector):
+    """Đăng ký bé từ web: nhận phiên chụp + đồng bộ ảnh mẫu (cần models/cat_embedder.onnx để học)."""
+    global ENROLLER
+    import reid_sync
+    api = reid_sync.Api(AURAPET_SERVER, CAMERA_KEY)
+    sync = reid_sync.GallerySync(api, detector)
+    sync.start()
+    ENROLLER = reid_sync.Enroller(api, lambda: detector.embedder, sync.wake.set)
+    ENROLLER.start()
+    if detector.embedder is None:
+        print(f"[Đăng ký] Chưa có {ONNX_EMBEDDER}: vẫn chụp được ảnh đăng ký từ web nhưng chưa học được."
+              " Xuất bằng export_embedder.py trên máy tính rồi chép sang Pi.")
+    else:
+        print(f"[Đăng ký] Đồng bộ ảnh mẫu từ web mỗi {reid_sync.SYNC_INTERVAL} giây")
+
+
 def main():
     detector = CatDetector() if AI_ENABLED else None
     client = make_client()
@@ -499,6 +750,14 @@ def main():
 
     worker = None
     if detector is not None:
+        if DIRECT_CONTROL:
+            print(f"[ESP32] Điều khiển trực tiếp: gửi lệnh CAT tới {COMMAND_TOPIC} (ESP32 tự quyết nhả hạt)")
+            if STREAM_ON:
+                PORTIONS.start()
+            else:
+                print(f"[Khẩu phần] Không có AURAPET_SERVER/CAMERA_KEY: dùng PET_PORTIONS/portions.json {PORTIONS.pets or '(trống)'}")
+        if STREAM_ON:
+            start_reid_sync(detector)
         worker = DetectionWorker(detector, client)
         worker.start()
         print(f"[AI] Ngưỡng {CAT_CONFIDENCE} | {STABLE_FRAMES} lần liên tiếp | ROI {CAT_ROI or 'cả khung'}"

@@ -8,7 +8,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import com.aurapet.backend.interfaces.web.exception.BadRequestException;
+import com.aurapet.backend.interfaces.web.exception.DeviceUnavailableException;
+
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -16,6 +20,7 @@ import java.util.UUID;
  *   visit          mèo đi vệ sinh xong 1 lượt (durationSec = thời gian ở trong khay) -> ghi litter_logs
  *   cleaned        máy cào cát xong
  *   clean_stopped  dừng cào giữa chừng vì mèo vào khay
+ *   clean_cancelled dừng cào theo lệnh STOP từ web/app
  * agoSec: số giây từ lúc xảy ra tới lúc gửi (ESP32 gửi bù sau khi mất mạng).
  */
 @Slf4j
@@ -30,6 +35,7 @@ public class LitterService {
     private final PetRepository petRepository;
     private final WaterMonitorService waterMonitor;
     private final DeviceAlerts alerts;
+    private final DeviceCommandPublisher publisher;
     private final ObjectMapper mapper;
 
     private Instant lastVisitAt;
@@ -47,13 +53,54 @@ public class LitterService {
                          PetRepository petRepository,
                          WaterMonitorService waterMonitor,
                          DeviceAlerts alerts,
+                         DeviceCommandPublisher publisher,
                          ObjectMapper mapper) {
         this.settings = settings;
         this.litterLogRepository = litterLogRepository;
         this.petRepository = petRepository;
         this.waterMonitor = waterMonitor;
         this.alerts = alerts;
+        this.publisher = publisher;
         this.mapper = mapper;
+    }
+
+    // =====================================================================
+    // DỌN CÁT THỦ CÔNG TỪ WEB/APP (lệnh qua PREFIX/litter/command)
+    // =====================================================================
+
+    /** Cào cát ngay. Máy từ chối nếu mèo đang trong khay hoặc đang cào. */
+    public void clean() {
+        String state = requireOnline();
+        if ("cat_inside".equals(state)) {
+            throw new BadRequestException("Mèo đang ở trong khay — đợi bé ra rồi dọn cát");
+        }
+        if ("cleaning".equals(state)) {
+            throw new BadRequestException("Máy đang dọn cát");
+        }
+        send(Map.of("action", "CLEAN"));
+    }
+
+    /** Dừng cào cát ngay (cào dừng tại chỗ, lần dọn sau sẽ tự về vị trí đầu). */
+    public void stopClean() {
+        requireOnline();
+        send(Map.of("action", "STOP"));
+    }
+
+    private String requireOnline() {
+        if (!publisher.isConnected()) {
+            throw new DeviceUnavailableException("Máy chủ chưa kết nối được MQTT broker. Kiểm tra cấu hình MQTT_* trong file .env");
+        }
+        WaterMonitorService.Reading r = waterMonitor.reading();
+        if (!r.litterOnline()) {
+            throw new DeviceUnavailableException("Máy dọn cát đang offline — kiểm tra nguồn điện và Wi-Fi của ESP32");
+        }
+        return r.litterState();
+    }
+
+    private void send(Map<String, Object> command) {
+        if (!publisher.publish(DeviceCommandPublisher.LITTER_CHANNEL, command)) {
+            throw new DeviceUnavailableException("Không gửi được lệnh tới máy dọn cát, thử lại sau");
+        }
     }
 
     public synchronized LastVisit lastVisit() {
@@ -88,6 +135,8 @@ public class LitterService {
             }
             case "clean_stopped" -> alerts.add(AlertType.LITTER, AlertLevel.INFO,
                     "Máy dừng cào cát giữa chừng vì mèo vào khay, sẽ dọn lại sau khi bé ra");
+            case "clean_cancelled" -> alerts.add(AlertType.LITTER, AlertLevel.INFO,
+                    "Đã dừng dọn cát theo lệnh từ web/app");
             default -> log.debug("[Litter] Bỏ qua sự kiện khay lạ: {}", event);
         }
     }

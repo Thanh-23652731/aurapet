@@ -131,6 +131,8 @@ class DeviceState {
   final bool lowWater;
   final bool waterSensorOk;
   // Khay vệ sinh (cùng ESP32 máy dọn cát)
+  final bool litterOnline;
+  final DateTime? litterLastSeen;
   final String? litterState; // idle | cat_inside | waiting | cleaning
   final DateTime? lastLitterVisitAt;
   final int? lastLitterVisitSec;
@@ -160,6 +162,8 @@ class DeviceState {
     this.waterPercent = -1,
     this.lowWater = false,
     this.waterSensorOk = false,
+    this.litterOnline = false,
+    this.litterLastSeen,
     this.litterState,
     this.lastLitterVisitAt,
     this.lastLitterVisitSec,
@@ -190,6 +194,8 @@ class DeviceState {
         waterPercent: j['waterPercent'] == null ? -1 : _int(j['waterPercent'], -1),
         lowWater: _bool(j['lowWater']),
         waterSensorOk: _bool(j['waterSensorOk']),
+        litterOnline: _bool(j['litterOnline']),
+        litterLastSeen: _date(j['litterLastSeen']),
         litterState: j['litterState'] as String?,
         lastLitterVisitAt: _date(j['lastLitterVisitAt']),
         lastLitterVisitSec: j['lastLitterVisitSec'] == null ? null : _int(j['lastLitterVisitSec']),

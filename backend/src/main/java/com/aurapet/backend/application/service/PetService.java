@@ -4,6 +4,7 @@ import com.aurapet.backend.application.dto.*;
 import com.aurapet.backend.domain.model.Gender;
 import com.aurapet.backend.domain.model.Pet;
 import com.aurapet.backend.domain.model.WeightRecord;
+import com.aurapet.backend.domain.repository.PetReidPhotoRepository;
 import com.aurapet.backend.domain.repository.PetRepository;
 import com.aurapet.backend.domain.repository.WeightRecordRepository;
 import com.aurapet.backend.interfaces.web.exception.BadRequestException;
@@ -31,6 +32,7 @@ public class PetService {
 
     private final PetRepository petRepository;
     private final WeightRecordRepository weightRecordRepository;
+    private final PetReidPhotoRepository reidPhotoRepository;
 
     @Transactional(readOnly = true)
     public PetPageData getPets(int page, int size, String search, String breed, String genderStr,
@@ -120,6 +122,7 @@ public class PetService {
     @Transactional
     public void deletePet(UUID id, Actor actor) {
         Pet pet = requireAccessible(id, actor);
+        reidPhotoRepository.deleteByPetId(pet.getId()); // ảnh mẫu nhận diện của bé
         petRepository.delete(pet);
     }
 

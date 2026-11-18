@@ -35,6 +35,9 @@ class PetServiceTest {
     @Mock
     private WeightRecordRepository weightRecordRepository;
 
+    @Mock
+    private com.aurapet.backend.domain.repository.PetReidPhotoRepository reidPhotoRepository;
+
     @InjectMocks
     private PetService petService;
 
